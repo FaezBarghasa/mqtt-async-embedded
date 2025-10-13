@@ -1,100 +1,113 @@
-//! An example of running the MQTT client on a desktop using std::net::TcpStream.
+//! Host-based example using std::net::TcpStream.
 //!
-//! To run this, you need a local MQTT broker (like Mosquitto) running on port 1883.
-//! `cargo run --example desktop_mock --features std`
-
+//! This example demonstrates how to run the MQTT client on a desktop machine.
+//! It uses `tokio` to provide an async runtime and `std::net::TcpStream` for the transport.
+//! A background task is spawned to handle the MQTT polling loop.
+//!
+//! You will need an MQTT broker running on localhost:1883.
+//!
 #![allow(unused_imports)]
+#![allow(dead_code)]
 
 use embassy_executor::Spawner;
-use embassy_net::tcp::TcpSocket;
-use embassy_net::{Ipv4Address, Stack, StackResources};
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
-use log::*;
-use mqtt_async_embedded::{MqttClient, MqttOptions, QoS};
+use log::{error, info};
+use mqtt_async_embedded::client::{MqttClient, MqttOptions};
+use mqtt_async_embedded::packet::QoS;
+use mqtt_async_embedded::transport::std_tcp::StdTcpTransport;
+use static_cell::StaticCell;
 
-// This requires a custom executor setup for std environment.
-// For simplicity, we use a basic async runtime like `tokio`.
-// This setup shows how the client can be adapted.
+// Type alias for the client to simplify signatures.
+type Client<'a> = MqttClient<'a, StdTcpTransport, 1024, 1024>;
 
-use mqtt_async_embedded::transport::{MqttTransport, TcpTransportError, TransportError};
+// Static cell for holding the MQTT client, wrapped in a Mutex for safe concurrent access.
+static CLIENT: StaticCell<Mutex<NoopRawMutex, Client>> = StaticCell::new();
 
-// A mock transport using std::net for desktop testing.
-struct StdTcpTransport {
-    stream: std::net::TcpStream,
-}
+/// The main application task.
+#[embassy_executor::main]
+async fn main(spawner: Spawner) {
+    // Basic logging setup.
+    env_logger::builder()
+        .filter(None, log::LevelFilter::Info)
+        .init();
 
-impl StdTcpTransport {
-    fn new(addr: &str) -> std::io::Result<Self> {
-        let stream = std::net::TcpStream::connect(addr)?;
-        stream.set_nonblocking(true)?;
-        Ok(Self { stream })
-    }
-}
+    // Spawn the MQTT polling task to run in the background.
+    spawner.spawn(mqtt_poll_task()).unwrap();
 
-// Dummy error for the mock transport
-#[derive(Debug)]
-struct StdTransportError(std::io::Error);
-impl TransportError for StdTransportError {}
+    // Initialize the TCP transport and connect to the broker.
+    let transport = StdTcpTransport::new("localhost:1883")
+        .await
+        .expect("Failed to connect to broker");
 
-impl MqttTransport for StdTcpTransport {
-    type Error = StdTransportError;
+    // Configure the MQTT client.
+    let options = MqttOptions::new("desktop-client-123");
+    let client = MqttClient::new(transport, options);
 
-    async fn send(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
-        use std::io::Write;
-        self.stream.write_all(buf).map_err(StdTransportError)
-    }
+    // Initialize the static client instance.
+    let client = CLIENT.init(Mutex::new(client));
 
-    async fn recv<'a>(&mut self, buf: &'a mut [u8]) -> Result<usize, Self::Error> {
-        use std::io::Read;
-        match self.stream.read(buf) {
-            Ok(n) => Ok(n),
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                // In a real async environment, we'd yield here.
-                // We simulate this with a small sleep.
-                Timer::after(Duration::from_millis(10)).await;
-                Ok(0) // Indicate no data was read right now
-            }
-            Err(e) => Err(StdTransportError(e)),
-        }
-    }
-}
-
-#[tokio::main]
-async fn main() {
-    env_logger::init();
-    info!("Starting desktop MQTT example...");
-
-    // This address should point to your MQTT broker
-    let broker_address = "127.0.0.1:1883";
-    let transport = match StdTcpTransport::new(broker_address) {
-        Ok(t) => t,
-        Err(e) => {
-            error!("Failed to connect to broker at {}: {}", broker_address, e);
-            return;
-        }
-    };
-
-    let options = MqttOptions::new("desktop_client_123");
-    let mut client = MqttClient::new(transport, options);
-
-    info!("Connecting to broker...");
-    if let Err(e) = client.connect().await {
-        error!("Failed to connect: {:?}", e);
-        return;
+    info!("Connecting to MQTT broker...");
+    {
+        // Lock the client to perform the connect operation.
+        let mut client_guard = client.lock().await;
+        client_guard.connect().await.unwrap();
     }
     info!("Connected!");
 
-    info!("Publishing message...");
-    let result = client
-        .publish("sensors/temperature", b"27.5", QoS::AtLeastOnce)
-        .await;
-
-    if let Err(e) = result {
-        error!("Failed to publish: {:?}", e);
-    } else {
-        info!("Published successfully!");
+    info!("Subscribing to 'test/topic'...");
+    {
+        let mut client_guard = client.lock().await;
+        client_guard
+            .subscribe("test/topic", QoS::AtMostOnce)
+            .await
+            .unwrap();
     }
+    info!("Subscribed!");
 
-    client.disconnect().await.unwrap();
-    info!("Disconnected.");
+    // Main loop to publish messages periodically.
+    let mut count = 0;
+    loop {
+        let msg = format!("Hello from desktop! Count: {}", count);
+        info!("Publishing: '{}'", &msg);
+        {
+            let mut client_guard = client.lock().await;
+            client_guard
+                .publish("test/topic", msg.as_bytes(), QoS::AtMostOnce)
+                .await
+                .unwrap();
+        }
+        count += 1;
+        Timer::after(Duration::from_secs(5)).await;
+    }
 }
+
+/// The background task for polling the MQTT client.
+///
+/// This task runs in a continuous loop, calling the client's `poll` method.
+/// This is essential for handling keep-alives and processing incoming messages.
+#[embassy_executor::task]
+async fn mqtt_poll_task() {
+    let client = CLIENT.get();
+    loop {
+        // Lock the client to perform the poll operation.
+        let mut client_guard = client.lock().await;
+
+        // The `poll` method handles incoming packets and sends keep-alive pings.
+        match client_guard.poll().await {
+            Ok(Some(packet)) => {
+                info!("Received packet: {:?}", packet);
+            }
+            Ok(None) => {
+                // No packet received, everything is normal.
+            }
+            Err(e) => {
+                error!("MQTT poll error: {:?}", e);
+                // In a real application, you might want to handle reconnection here.
+                Timer::after(Duration::from_secs(1)).await;
+            }
+        }
+    }
+}
+
