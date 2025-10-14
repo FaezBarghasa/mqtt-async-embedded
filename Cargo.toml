@@ -5,11 +5,11 @@ edition = "2024"
 authors = ["Faez Barghasa <faez.barghasa.org@gmail.com.com>"]
 description = "An async, no_std-compatible MQTT client for embedded systems using Embassy."
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/your-username/mqtt-async-embedded"
+repository = "https://github.com/FaezBarghasa/mqtt-async-embedded"
 documentation = "https://docs.rs/mqtt-async-embedded"
 readme = "README.md"
 keywords = ["mqtt", "async", "embedded", "embassy", "no_std"]
-categories = ["embedded", "network", "asynchronous"]
+categories = ["embedded", "no-std", "asynchronous", "network-programming"]
 
 [dependencies]
 embedded-hal = "1.0.0"
