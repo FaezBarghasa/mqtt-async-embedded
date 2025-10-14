@@ -8,7 +8,7 @@ use crate::client::MqttVersion;
 use crate::error::{MqttError, ProtocolError};
 use crate::transport;
 use crate::util::{
-    self, read_utf8_string, read_variable_byte_integer, write_utf8_string,
+    self, read_utf8_string, write_utf8_string,
 };
 use core::marker::PhantomData;
 use heapless::Vec;

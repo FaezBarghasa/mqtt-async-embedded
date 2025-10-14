@@ -3,14 +3,13 @@
 //! This module contains the primary `MqttClient` struct, which manages the state,
 //! connection, and communication with an MQTT broker.
 
-use crate::error::{ConnectReasonCode, MqttError, ProtocolError};
+use crate::error::{MqttError, ProtocolError};
 use crate::packet::{
-    self, ConnAck, Connect, DecodePacket, Disconnect, EncodePacket, MqttPacket, PingReq, Publish,
-    QoS, SubAck, Subscribe,
+    self, Connect, EncodePacket, MqttPacket, PingReq, Publish,
+    QoS,
 };
 use crate::transport::{self, MqttTransport};
 use embassy_time::{Duration, Instant};
-use heapless::{String, Vec};
 
 /// Represents the MQTT protocol version used by the client.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
