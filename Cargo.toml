@@ -1,7 +1,7 @@
 [package]
 name = "mqtt-async-embedded"
-version = "0.1.0"
-edition = "2021"
+version = "1.0.0"
+edition = "2024"
 authors = ["Faez Barghasa <faez.barghasa.org@gmail.com.com>"]
 description = "An async, no_std-compatible MQTT client for embedded systems using Embassy."
 license = "MIT OR Apache-2.0"
