@@ -1,12 +1,22 @@
-//! Traits and implementations for abstracting MQTT transport layers.
+//! # MQTT Transport Abstraction
+//!
+//! This module defines the traits and implementations for abstracting the
+//! underlying transport layer (e.g., TCP, UART) used by the MQTT client.
+//!
+//! The core of this module is the `MqttTransport` trait, which provides a
+//! generic interface for sending and receiving raw byte buffers. This allows
+//! the MQTT client to be hardware-agnostic and support various communication
+//! channels.
 
 use crate::error::MqttError;
 use embassy_time::{Duration, Timer};
 use futures::future::select;
 use futures::pin_mut;
 use futures::FutureExt;
+use embedded_io_async::Write;
 
 /// A trait for transport-specific errors.
+///
 /// This allows the main `MqttError` to be generic over the transport error type.
 pub trait TransportError: core::fmt::Debug {}
 
@@ -58,14 +68,14 @@ pub trait MqttTransport {
 }
 
 /// A sample transport error for TCP connections.
-#[cfg(feature = "embassy-net")]
+#[cfg(feature = "transport-smoltcp")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TcpTransportError(pub embassy_net::tcp::Error);
 
-#[cfg(feature = "embassy-net")]
+#[cfg(feature = "transport-smoltcp")]
 impl TransportError for TcpTransportError {}
 
-#[cfg(feature = "embassy-net")]
+#[cfg(feature = "transport-smoltcp")]
 impl From<embassy_net::tcp::Error> for TcpTransportError {
     fn from(e: embassy_net::tcp::Error) -> Self {
         TcpTransportError(e)
@@ -73,7 +83,7 @@ impl From<embassy_net::tcp::Error> for TcpTransportError {
 }
 
 /// An `MqttTransport` implementation for `embassy-net` TCP sockets.
-#[cfg(feature = "embassy-net")]
+#[cfg(feature = "transport-smoltcp")]
 impl<'a> MqttTransport for embassy_net::tcp::TcpSocket<'a> {
     type Error = TcpTransportError;
 

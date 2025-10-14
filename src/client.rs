@@ -2,8 +2,8 @@
 
 use crate::error::{ConnectReasonCode, MqttError, ProtocolError};
 use crate::packet::{
-    self, ConnAck, Connect, DecodePacket, Disconnect, EncodePacket, MqttPacket, PingReq, Publish,
-    QoS, Subscribe,
+    self, ConnAck, Connect, Disconnect, EncodePacket, MqttPacket, PingReq, Publish, QoS,
+    Subscribe,
 };
 #[cfg(feature = "v5")]
 use crate::packet::{Properties, Property};
@@ -11,33 +11,47 @@ use crate::transport::MqttTransport;
 use embassy_time::{Duration, Instant};
 use heapless::Vec;
 
+/// The MQTT protocol version.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum MqttVersion {
+    /// MQTT v3.1.1
     V3_1_1,
+    /// MQTT v5
     #[cfg(feature = "v5")]
     V5,
 }
 
+/// The connection state of the MQTT client.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ConnectionState {
+    /// The client is disconnected.
     Disconnected,
+    /// The client is currently connecting.
     Connecting,
+    /// The client is connected.
     Connected,
 }
 
+/// Options for configuring the MQTT client.
 #[derive(Debug)]
 pub struct MqttOptions<'a> {
+    /// The client ID to use when connecting to the broker.
     pub client_id: &'a str,
+    /// The keep-alive interval in seconds.
     pub keep_alive: Duration,
+    /// Whether to start a clean session.
     pub clean_session: bool,
+    /// The MQTT protocol version to use.
     pub version: MqttVersion,
+    /// MQTT v5 connect properties.
     #[cfg(feature = "v5")]
     pub connect_properties: Properties<'a>,
 }
 
 impl<'a> MqttOptions<'a> {
+    /// Creates a new `MqttOptions` with default values.
     pub fn new(client_id: &'a str) -> Self {
         Self {
             client_id,
@@ -49,18 +63,27 @@ impl<'a> MqttOptions<'a> {
         }
     }
 
+    /// Sets the MQTT protocol version.
     pub fn set_version(mut self, version: MqttVersion) -> Self {
         self.version = version;
         self
     }
 
+    /// Sets the MQTT v5 connect properties.
     #[cfg(feature = "v5")]
     pub fn set_connect_properties(mut self, properties: Properties<'a>) -> Self {
         self.connect_properties = properties;
         self
     }
+
+    /// Sets the keep-alive interval.
+    pub fn set_keep_alive(mut self, keep_alive: Duration) -> Self {
+        self.keep_alive = keep_alive;
+        self
+    }
 }
 
+/// An asynchronous MQTT client.
 pub struct MqttClient<'a, T, const R: usize, const W: usize>
 where
     T: MqttTransport,
@@ -78,6 +101,7 @@ impl<'a, T, const R: usize, const W: usize> MqttClient<'a, T, R, W>
 where
     T: MqttTransport,
 {
+    /// Creates a new `MqttClient`.
     pub fn new(transport: T, options: MqttOptions<'a>) -> Self {
         Self {
             transport,
@@ -90,6 +114,7 @@ where
         }
     }
 
+    /// Returns the next available packet identifier.
     fn get_packet_id(&mut self) -> u16 {
         let id = self.next_packet_id;
         self.next_packet_id = self.next_packet_id.wrapping_add(1);
@@ -99,6 +124,7 @@ where
         id
     }
 
+    /// Connects to the MQTT broker.
     pub async fn connect(&mut self) -> Result<(), MqttError<T::Error>> {
         self.state = ConnectionState::Connecting;
 
@@ -134,6 +160,7 @@ where
         }
     }
 
+    /// Publishes a message to a topic.
     #[cfg(not(feature = "v5"))]
     pub async fn publish<'p>(
         &mut self,
@@ -156,6 +183,7 @@ where
         self.send_publish_packet(publish_packet).await
     }
 
+    /// Publishes a message to a topic (MQTT v5).
     #[cfg(feature = "v5")]
     pub async fn publish<'p>(
         &mut self,
@@ -184,6 +212,7 @@ where
         self.send_publish_packet(publish_packet).await
     }
 
+    /// Sends a `Publish` packet.
     async fn send_publish_packet<'p>(
         &mut self,
         publish_packet: Publish<'p>,
@@ -197,6 +226,7 @@ where
         Ok(())
     }
 
+    /// Subscribes to a topic.
     pub async fn subscribe<'p>(
         &mut self,
         topic: &'p str,
@@ -235,6 +265,7 @@ where
         }
     }
 
+    /// Sends a `PINGREQ` packet to the broker.
     pub async fn ping(&mut self) -> Result<(), MqttError<T::Error>> {
         if self.state != ConnectionState::Connected {
             return Err(MqttError::NotConnected);
@@ -245,6 +276,7 @@ where
         Ok(())
     }
 
+    /// Disconnects from the MQTT broker.
     pub async fn disconnect(&mut self) -> Result<(), MqttError<T::Error>> {
         let len = Disconnect.encode(&mut self.tx_buffer, self.options.version)?;
         self.transport.send(&self.tx_buffer[..len]).await?;
@@ -274,4 +306,3 @@ where
         }
     }
 }
-
