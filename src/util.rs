@@ -4,9 +4,7 @@
 //! from and to byte buffers, such as variable-byte integers and length-prefixed strings.
 
 use crate::error::{MqttError, ProtocolError};
-use crate::packet;
 use crate::transport;
-use heapless::Vec;
 
 /// Reads a variable-byte integer from the buffer, advancing the cursor.
 ///
