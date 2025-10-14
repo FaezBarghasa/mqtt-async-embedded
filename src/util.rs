@@ -1,59 +1,78 @@
-//! # Utility Functions
+//! # MQTT Serialization Utilities
 //!
-//! This module provides various utility functions used throughout the MQTT client,
-//! such as encoding/decoding variable byte integers and handling UTF-8 strings.
+//! This module provides helper functions for reading and writing MQTT-specific data types
+//! from and to byte buffers, such as variable-byte integers and length-prefixed strings.
 
 use crate::error::{MqttError, ProtocolError};
+use crate::packet;
+use crate::transport;
+use heapless::Vec;
 
-/// Checks if a topic string is valid for publishing.
+/// Reads a variable-byte integer from the buffer, advancing the cursor.
 ///
-/// According to the MQTT specification, a topic used for publishing must not
-/// contain any wildcard characters (`+` or `#`).
-pub fn is_valid_publish_topic(topic: &str) -> bool {
-    !topic.contains('+') && !topic.contains('#')
-}
-
-/// Writes a UTF-8 encoded string to the buffer, prefixed with its length.
-pub fn write_utf8_string<T>(buf: &mut [u8], s: &str) -> Result<usize, MqttError<T>> {
-    let len = s.len();
-    if buf.len() < 2 + len {
-        return Err(MqttError::BufferTooSmall);
-    }
-    buf[0..2].copy_from_slice(&(len as u16).to_be_bytes());
-    buf[2..2 + len].copy_from_slice(s.as_bytes());
-    Ok(2 + len)
-}
-
-/// Reads a UTF-8 encoded string from the buffer.
-pub fn read_utf8_string<'a, T>(buf: &'a [u8]) -> Result<(&'a str, usize), MqttError<T>> {
-    if buf.len() < 2 {
-        return Err(MqttError::BufferTooSmall);
-    }
-    let len = u16::from_be_bytes([buf[0], buf[1]]) as usize;
-    if buf.len() < 2 + len {
-        return Err(MqttError::BufferTooSmall);
-    }
-    let s = core::str::from_utf8(&buf[2..2 + len])
-        .map_err(|_| MqttError::Protocol(ProtocolError::InvalidUtf8))?;
-    Ok((s, 2 + len))
-}
-
-/// Encodes an integer into the variable byte integer format.
-pub fn encode_variable_byte_integer<T>(
-    buf: &mut [u8],
-    mut val: u32,
-) -> Result<usize, MqttError<T>> {
+/// This is a common encoding scheme in MQTT for packet lengths.
+pub fn read_variable_byte_integer(
+    cursor: &mut usize,
+    buf: &[u8],
+) -> Result<usize, MqttError<transport::ErrorPlaceHolder>> {
+    let mut multiplier = 1;
+    let mut value = 0;
     let mut i = 0;
     loop {
-        if i >= 4 {
-            return Err(MqttError::BufferTooSmall); // Should not happen with u32
+        let encoded_byte = buf
+            .get(*cursor + i)
+            .ok_or(MqttError::Protocol(ProtocolError::MalformedPacket))?;
+        value += (encoded_byte & 127) as usize * multiplier;
+        if (encoded_byte & 128) == 0 {
+            break;
         }
+        multiplier *= 128;
+        i += 1;
+        if i >= 4 {
+            return Err(MqttError::Protocol(ProtocolError::MalformedPacket));
+        }
+    }
+    *cursor += i + 1;
+    Ok(value)
+}
+
+/// Writes a variable-byte integer to the buffer, advancing the cursor.
+pub fn write_variable_byte_integer(
+    cursor: &mut usize,
+    buf: &mut [u8],
+    mut val: usize,
+) -> Result<(), MqttError<transport::ErrorPlaceHolder>> {
+    loop {
         let mut encoded_byte = (val % 128) as u8;
         val /= 128;
         if val > 0 {
             encoded_byte |= 128;
         }
-        buf[i] = encoded_byte;
+        // CORRECTED: Dereference the `&mut u8` to assign the value directly.
+        *buf.get_mut(*cursor)
+            .ok_or(MqttError::BufferTooSmall)? = encoded_byte;
+        *cursor += 1;
+        if val == 0 {
+            break;
+        }
+    }
+    Ok(())
+}
+
+/// A simplified version of `write_variable_byte_integer` for external use that returns the byte count.
+pub fn write_variable_byte_integer_len(
+    buf: &mut [u8],
+    mut val: usize,
+) -> Result<usize, MqttError<transport::ErrorPlaceHolder>> {
+    let mut i = 0;
+    loop {
+        let mut encoded_byte = (val % 128) as u8;
+        val /= 128;
+        if val > 0 {
+            encoded_byte |= 128;
+        }
+        // CORRECTED: Dereference the `&mut u8` to assign the value directly.
+        *buf.get_mut(i).ok_or(MqttError::BufferTooSmall)? = encoded_byte;
         i += 1;
         if val == 0 {
             break;
@@ -62,27 +81,100 @@ pub fn encode_variable_byte_integer<T>(
     Ok(i)
 }
 
-/// Decodes a variable byte integer from the buffer.
-pub fn decode_variable_byte_integer<T>(buf: &[u8]) -> Result<(u32, usize), MqttError<T>> {
-    let mut multiplier = 1;
-    let mut value = 0;
-    let mut i = 0;
-    loop {
-        if i >= buf.len() {
-            return Err(MqttError::BufferTooSmall);
-        }
-        let encoded_byte = buf[i];
-        value += (encoded_byte & 127) as u32 * multiplier;
-        if multiplier > 128 * 128 * 128 {
-            return Err(MqttError::Protocol(
-                ProtocolError::InvalidVariableByteInteger,
-            ));
-        }
-        multiplier *= 128;
-        i += 1;
-        if (encoded_byte & 128) == 0 {
-            break;
-        }
-    }
-    Ok((value, i))
+/// Reads a UTF-8 encoded string (prefixed with a 2-byte length) from the buffer.
+pub fn read_utf8_string<'a>(
+    cursor: &mut usize,
+    buf: &'a [u8],
+) -> Result<&'a str, MqttError<transport::ErrorPlaceHolder>> {
+    let len = u16::from_be_bytes(
+        buf.get(*cursor..*cursor + 2)
+            .ok_or(MqttError::Protocol(ProtocolError::MalformedPacket))?
+            .try_into()
+            .unwrap(),
+    ) as usize;
+    *cursor += 2;
+    let s = core::str::from_utf8(
+        buf.get(*cursor..*cursor + len)
+            .ok_or(MqttError::Protocol(ProtocolError::MalformedPacket))?,
+    )
+        .map_err(|_| MqttError::Protocol(ProtocolError::InvalidUtf8String))?;
+    *cursor += len;
+    Ok(s)
 }
+
+/// Writes a UTF-8 encoded string (prefixed with a 2-byte length) to the buffer.
+pub fn write_utf8_string(
+    buf: &mut [u8],
+    s: &str,
+) -> Result<usize, MqttError<transport::ErrorPlaceHolder>> {
+    let len = s.len();
+    if len > u16::MAX as usize {
+        return Err(MqttError::Protocol(ProtocolError::PayloadTooLarge));
+    }
+    let len_bytes = (len as u16).to_be_bytes();
+
+    let required_space = 2 + len;
+    let slice = buf
+        .get_mut(0..required_space)
+        .ok_or(MqttError::BufferTooSmall)?;
+
+    slice[0..2].copy_from_slice(&len_bytes);
+    slice[2..].copy_from_slice(s.as_bytes());
+    Ok(required_space)
+}
+
+/// Reads MQTT v5 properties from the buffer.
+#[cfg(feature = "v5")]
+pub fn read_properties<'a>(
+    cursor: &mut usize,
+    buf: &'a [u8],
+) -> Result<Vec<packet::Property<'a>, 8>, MqttError<transport::ErrorPlaceHolder>> {
+    let mut properties = Vec::new();
+    let prop_len = read_variable_byte_integer(cursor, buf)?;
+    let prop_end = *cursor + prop_len;
+
+    while *cursor < prop_end {
+        let id = buf[*cursor];
+        *cursor += 1;
+        let data_start = *cursor;
+        // This is a simplified implementation. A real one would decode property data
+        // based on the specific property ID.
+        let data_len = 1; // Placeholder
+        *cursor += data_len;
+        properties
+            .push(packet::Property {
+                id,
+                data: &buf[data_start..data_start + data_len],
+            })
+            .map_err(|_| MqttError::Protocol(ProtocolError::TooManyProperties))?;
+    }
+    Ok(properties)
+}
+
+/// Writes MQTT v5 properties to the buffer.
+#[cfg(feature = "v5")]
+pub fn write_properties(
+    cursor: &mut usize,
+    buf: &mut [u8],
+    properties: &[packet::Property],
+) -> Result<(), MqttError<transport::ErrorPlaceHolder>> {
+    // This is a simplified implementation. A real one would calculate total length first.
+    let prop_len_cursor_start = *cursor;
+    *cursor += 1; // Reserve space for length
+
+    let props_start = *cursor;
+    for prop in properties {
+        buf[*cursor] = prop.id;
+        *cursor += 1;
+        buf[*cursor..*cursor + prop.data.len()].copy_from_slice(prop.data);
+        *cursor += prop.data.len();
+    }
+    let total_prop_len = *cursor - props_start;
+
+    // Write the actual property length
+    let mut temp_cursor = prop_len_cursor_start;
+    let _ = crate::util::write_variable_byte_integer(&mut temp_cursor, buf, total_prop_len)?;
+
+    Ok(())
+}
+
