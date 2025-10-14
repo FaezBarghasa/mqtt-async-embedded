@@ -1,7 +1,14 @@
-//! Unified error types for the MQTT client.
+//! # Error Types
+//!
+//! This module defines the error types used throughout the MQTT client.
+//! It includes errors related to the underlying transport, the MQTT protocol,
+//! and connection issues.
 
 use crate::transport;
 
+/// Reason codes for connection refusal.
+///
+/// These codes are returned by the broker in the `CONNACK` packet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
@@ -18,7 +25,6 @@ pub enum ConnectReasonCode {
     ServerUnavailable = 136,
     ServerBusy = 137,
     Banned = 138,
-    // ... other V5 codes
     V3(u8),
 }
 
@@ -85,4 +91,3 @@ impl<T: transport::TransportError> From<T> for MqttError<T> {
         MqttError::Transport(e)
     }
 }
-

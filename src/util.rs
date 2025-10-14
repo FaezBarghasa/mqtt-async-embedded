@@ -1,11 +1,19 @@
-//! Utility functions for the MQTT client.
+//! # Utility Functions
+//!
+//! This module provides various utility functions used throughout the MQTT client,
+//! such as encoding/decoding variable byte integers and handling UTF-8 strings.
 
 use crate::error::{MqttError, ProtocolError};
 
+/// Checks if a topic string is valid for publishing.
+///
+/// According to the MQTT specification, a topic used for publishing must not
+/// contain any wildcard characters (`+` or `#`).
 pub fn is_valid_publish_topic(topic: &str) -> bool {
     !topic.contains('+') && !topic.contains('#')
 }
 
+/// Writes a UTF-8 encoded string to the buffer, prefixed with its length.
 pub fn write_utf8_string<T>(buf: &mut [u8], s: &str) -> Result<usize, MqttError<T>> {
     let len = s.len();
     if buf.len() < 2 + len {
@@ -16,6 +24,7 @@ pub fn write_utf8_string<T>(buf: &mut [u8], s: &str) -> Result<usize, MqttError<
     Ok(2 + len)
 }
 
+/// Reads a UTF-8 encoded string from the buffer.
 pub fn read_utf8_string<'a, T>(buf: &'a [u8]) -> Result<(&'a str, usize), MqttError<T>> {
     if buf.len() < 2 {
         return Err(MqttError::BufferTooSmall);
@@ -29,6 +38,7 @@ pub fn read_utf8_string<'a, T>(buf: &'a [u8]) -> Result<(&'a str, usize), MqttEr
     Ok((s, 2 + len))
 }
 
+/// Encodes an integer into the variable byte integer format.
 pub fn encode_variable_byte_integer<T>(
     buf: &mut [u8],
     mut val: u32,
@@ -52,6 +62,7 @@ pub fn encode_variable_byte_integer<T>(
     Ok(i)
 }
 
+/// Decodes a variable byte integer from the buffer.
 pub fn decode_variable_byte_integer<T>(buf: &[u8]) -> Result<(u32, usize), MqttError<T>> {
     let mut multiplier = 1;
     let mut value = 0;
@@ -75,4 +86,3 @@ pub fn decode_variable_byte_integer<T>(buf: &[u8]) -> Result<(u32, usize), MqttE
     }
     Ok((value, i))
 }
-

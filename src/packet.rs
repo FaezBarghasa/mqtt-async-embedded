@@ -1,7 +1,11 @@
-//! Routines for encoding and decoding MQTT control packets.
+//! # MQTT Control Packets
+//!
+//! This module handles the encoding and decoding of MQTT control packets.
+//! It defines traits for packets that can be encoded or decoded, and provides
+//! implementations for each packet type.
 
 use crate::client::MqttVersion;
-use crate::error::{ConnectReasonCode, MqttError, ProtocolError};
+use crate::error::{MqttError, ProtocolError};
 use crate::transport;
 use crate::util::{
     decode_variable_byte_integer, encode_variable_byte_integer, read_utf8_string,
@@ -14,11 +18,15 @@ use heapless::Vec;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
 pub enum QoS {
+    /// At most once delivery.
     AtMostOnce = 0,
+    /// At least once delivery.
     AtLeastOnce = 1,
+    /// Exactly once delivery.
     ExactlyOnce = 2,
 }
 
+/// Represents MQTT v5 properties.
 #[cfg(feature = "v5")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -74,9 +82,8 @@ pub trait EncodePacket {
 
 /// Represents incoming packets from the broker.
 #[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum MqttPacket<'a> {
-    ConnAck(ConnAck),
+    ConnAck(ConnAck<'a>),
     Publish(Publish<'a>),
     PubAck(PubAck),
     SubAck(SubAck),
@@ -181,15 +188,14 @@ impl<'a> EncodePacket for Connect<'a> {
 
 // --- CONNACK Packet ---
 #[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct ConnAck {
+pub struct ConnAck<'a> {
     pub session_present: bool,
     pub reason_code: u8,
     #[cfg(feature = "v5")]
-    pub properties: Properties<'static>,
+    pub properties: Properties<'a>,
 }
 
-impl<'a> DecodePacket<'a> for ConnAck {
+impl<'a> DecodePacket<'a> for ConnAck<'a> {
     fn decode<T: transport::TransportError>(
         buf: &'a [u8],
         version: MqttVersion,
@@ -455,4 +461,3 @@ fn decode_properties<'a, T: transport::TransportError>(
     }
     Ok((properties, cursor - initial_cursor))
 }
-

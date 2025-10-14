@@ -6,6 +6,7 @@ authors = ["Faez Barghasa <faez.barghasa.org@gmail.com.com>"]
 description = "An async, no_std-compatible MQTT client for embedded systems using Embassy."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/your-username/mqtt-async-embedded"
+documentation = "https://docs.rs/mqtt-async-embedded"
 readme = "README.md"
 keywords = ["mqtt", "async", "embedded", "embassy", "no_std"]
 categories = ["embedded", "network", "asynchronous"]
@@ -13,6 +14,7 @@ categories = ["embedded", "network", "asynchronous"]
 [dependencies]
 embedded-hal = "1.0.0"
 embedded-hal-async = "1.0.0"
+embedded-io-async = "0.6.1"
 heapless = "0.9"
 defmt = { version = "1.0.1", optional = true }
 embassy-time = "0.5.0"
@@ -33,11 +35,11 @@ tokio = { version = "1", features = ["full"], optional = true }
 
 [features]
 default = []
-std = ["dep:tokio", "dep:log", "dep:env_logger", "dep:embassy-executor", "dep:static_cell", "dep:embassy-sync"]
+std = ["dep:tokio", "dep:log", "dep:env_logger", "dep:embassy-executor", "dep:static_cell", "dep:embassy-sync", "embassy-time/std"]
 v5 = []
 defmt = ["dep:defmt"]
 nom = ["dep:nom"]
-transport-smoltcp = ["dep:embassy-net"]
+transport-smoltcp = ["dep:embassy-net", "embassy-net/tcp", "embassy-net/proto-ipv4", "embassy-net/medium-ethernet"]
 
 
 [[example]]
