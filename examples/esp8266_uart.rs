@@ -65,6 +65,10 @@ impl embedded_io_async::Write for MockUartIo {
         // In real hardware, write bytes to UART TX register / DMA
         Ok(buf.len())
     }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 fn main() {

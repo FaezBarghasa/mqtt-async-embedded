@@ -68,7 +68,9 @@ All serialization and deserialization functions use checked slice indexing (`get
 
 | Ecosystem Layer | Implementation / Integration Target |
 | :--- | :--- |
-| **Microcontroller HALs** | `embassy-stm32`, `embassy-nrf`, `esp-hal`, `rp-hal` |
-| **Async Runtime** | `embassy-executor` |
-| **Network Stack** | `embassy-net` (`smoltcp`), UART AT drivers, Cellular modems |
+| **ESP32 Microcontrollers** | **ESP32-S series** (ESP32-S2, ESP32-S3) [Xtensa] & **ESP32-C series** (ESP32-C2, ESP32-C3, ESP32-C6) [RISC-V], ESP32 classic, ESP32-H2 |
+| **Microcontroller HALs** | **`esp-hal`** (bare-metal `no_std`), `esp-wifi`, **`esp-idf-svc` / `esp-idf-hal`**, `embassy-stm32`, `embassy-nrf`, `rp-hal` |
+| **Async Runtime** | **`embassy-executor`** (bare-metal non-allocating tasks) & `tokio` (desktop/edge) |
+| **Universal Adapters** | `EmbeddedIoTransport<S>` and `EmbeddedIoSplitTransport<R, W>` for any `embedded-io-async` socket |
+| **Network Stacks** | `embassy-net` (`smoltcp`), `esp-wifi`, BSD / ESP-IDF sockets, UART AT modems |
 | **Host / Edge System** | `tokio`, `std::net::TcpStream`, `quinn` (QUIC / H3) |

@@ -14,32 +14,52 @@ categories = ["embedded", "no-std", "asynchronous", "network-programming"]
 [dependencies]
 embedded-hal = "1.0"
 embedded-hal-async = "1.0"
-embedded-io-async = "0.6"
+embedded-io-async = "0.7.0"
 heapless = "0.9"
 defmt = { version = "1.0", optional = true }
 embassy-time = "0.5"
-embassy-net = { version = "0.7", optional = true }
+embassy-net = { version = "0.9.1", optional = true }
 nom = { version = "8", optional = true }
 futures = { version = "0.3.31", default-features = false }
 
 # Dependencies for std / host / examples / QUIC
 log = { version = "0.4", optional = true }
 env_logger = { version = "0.11", optional = true }
-embassy-executor = { version = "0.9", optional = true }
+embassy-executor = { version = "0.10.0", optional = true }
 static_cell = { version = "2.1", optional = true }
-embassy-sync = { version = "0.7", optional = true }
+embassy-sync = { version = "0.8.0", optional = true }
 tokio = { version = "1.47", features = ["full"], optional = true }
 bytes = { version = "1.10", optional = true }
-quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls", "ring"], optional = true }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
+quinn = { version = "0.11", default-features = false, features = [
+    "runtime-tokio",
+    "rustls",
+    "ring",
+], optional = true }
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "std",
+], optional = true }
 
 [features]
 default = []
-std = ["dep:tokio", "dep:log", "dep:env_logger", "dep:embassy-executor", "dep:static_cell", "dep:embassy-sync", "embassy-time/std"]
+std = [
+    "dep:tokio",
+    "dep:log",
+    "dep:env_logger",
+    "dep:embassy-executor",
+    "dep:static_cell",
+    "dep:embassy-sync",
+    "embassy-time/std",
+]
 v5 = []
 defmt = ["dep:defmt"]
 nom = ["dep:nom"]
-transport-smoltcp = ["dep:embassy-net", "embassy-net/tcp", "embassy-net/proto-ipv4", "embassy-net/medium-ethernet"]
+transport-smoltcp = [
+    "dep:embassy-net",
+    "embassy-net/tcp",
+    "embassy-net/proto-ipv4",
+    "embassy-net/medium-ethernet",
+]
 transport-quic = ["std", "dep:quinn", "dep:rustls", "dep:bytes"]
 
 [[example]]
@@ -65,4 +85,6 @@ path = "examples/esp8266_uart.rs"
 name = "smoltcp_ethernet"
 path = "examples/smoltcp_ethernet.rs"
 
-
+[[example]]
+name = "esp32_wifi_embassy"
+path = "examples/esp32_wifi_embassy.rs"

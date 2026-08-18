@@ -523,6 +523,18 @@ where
         }
     }
 
+    pub fn transport(&self) -> &Q {
+        &self.transport
+    }
+
+    pub fn transport_mut(&mut self) -> &mut Q {
+        &mut self.transport
+    }
+
+    pub fn into_transport(self) -> Q {
+        self.transport
+    }
+
     /// Sends ultra-fast real-time telemetry via unreliable QUIC datagrams (zero handshake / zero HoL blocking).
     pub async fn publish_datagram(
         &mut self,

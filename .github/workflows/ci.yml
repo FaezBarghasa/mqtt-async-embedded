@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master", "main" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "master", "main" ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,7 +20,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-          targets: thumbv7em-none-eabihf
+          targets: thumbv7em-none-eabihf, riscv32imc-unknown-none-elf, riscv32imac-unknown-none-elf
 
       - name: Format Check
         run: cargo fmt --all -- --check
@@ -28,11 +28,20 @@ jobs:
       - name: Build (no_std sanity)
         run: cargo build --no-default-features
 
-      - name: Build for Cortex-M (embedded target)
+      - name: Build for ESP32-C3 (RISC-V embedded target)
+        run: cargo build --target riscv32imc-unknown-none-elf --no-default-features
+
+      - name: Build for ESP32-C6 (RISC-V embedded target)
+        run: cargo build --target riscv32imac-unknown-none-elf --no-default-features
+
+      - name: Build for ARM Cortex-M (embedded target)
         run: cargo build --target thumbv7em-none-eabihf --no-default-features
 
-      - name: Test (std features)
-        run: cargo test --features std
+      - name: Test (all features & integration tests)
+        run: cargo test --all-features
+
+      - name: Documentation Build
+        run: cargo doc --all-features --no-deps
 
       - name: Clippy Check
         run: cargo clippy --all-features -- -D warnings

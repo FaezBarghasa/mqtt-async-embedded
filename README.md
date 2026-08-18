@@ -125,21 +125,83 @@ async fn run_mqtt<T: mqtt_async_embedded::MqttTransport>(transport: T) {
 
 ---
 
+## ESP32 (S-Series & C-Series) & Embassy Native Support
+
+`mqtt-async-embedded` is engineered from the ground up for the Espressif and Embassy ecosystem:
+- **ESP32-S Series**: ESP32-S2, ESP32-S3 (Xtensa dual-core / single-core).
+- **ESP32-C Series**: ESP32-C2, ESP32-C3, ESP32-C6, ESP32-H2 (RISC-V).
+- **Framework Agnostic**: Works seamlessly with **`esp-hal`** (pure bare-metal `no_std`), **`esp-wifi`**, and **`esp-idf-svc` / `esp-idf-hal`**.
+- **Universal Adapters**: `EmbeddedIoTransport<S>` and `EmbeddedIoSplitTransport<R, W>` automatically convert any `embedded-io-async` socket or UART into an `MqttTransport`.
+
+### ESP32 `esp-hal` + `esp-wifi` / `embassy-net` Example
+
+```rust,no_run
+use embassy_time::Duration;
+use mqtt_async_embedded::{
+    EmbeddedIoTransport, MqttClient, MqttOptions, MqttVersion, PublishMessage, QoS,
+};
+
+// Inside your Embassy async task on ESP32-S3 or ESP32-C3/C6:
+async fn mqtt_task(stack: embassy_net::Stack<'static>) {
+    let mut rx_buf = [0u8; 1536];
+    let mut tx_buf = [0u8; 1536];
+    let mut socket = embassy_net::tcp::TcpSocket::new(stack, &mut rx_buf, &mut tx_buf);
+    
+    // Connect TCP socket to MQTT broker (e.g. HiveMQ / EMQX / AWS IoT)
+    socket.connect((embassy_net::Ipv4Address::new(192, 168, 1, 10), 1883)).await.unwrap();
+
+    // Wrap socket in universal zero-allocation adapter
+    let transport = EmbeddedIoTransport::new(socket);
+
+    let options = MqttOptions::new("esp32-node", "192.168.1.10", 1883)
+        .with_version(MqttVersion::V5)
+        .with_keep_alive(Duration::from_secs(30))
+        .with_will("devices/esp32/status", b"offline", QoS::AtLeastOnce, true);
+
+    // Static buffers: MAX_TOPICS = 8, BUF_SIZE = 2048 bytes
+    let mut client: MqttClient<_, 8, 2048> = MqttClient::new(transport, options);
+
+    client.connect().await.unwrap();
+    client.subscribe(&[("esp32/commands/+", QoS::AtLeastOnce)]).await.unwrap();
+
+    // Publish high-frequency telemetry burst
+    let batch = [
+        PublishMessage::new("esp32/temp", b"24.8", QoS::AtMostOnce),
+        PublishMessage::new("esp32/humidity", b"52.1", QoS::AtMostOnce),
+    ];
+    client.publish_batch(&batch).await.unwrap();
+
+    loop {
+        if let Some(event) = client.poll().await.unwrap() {
+            // Process incoming events with zero allocations
+        }
+    }
+}
+```
+
+---
+
 ## Running Examples
 
-### 1. Multi-Packet Burst Batching
+### 1. ESP32 Wi-Fi & Embassy Setup
+Demonstrates `EmbeddedIoTransport` wrapping an embedded TCP socket:
+```bash
+cargo run --example esp32_wifi_embassy --features std
+```
+
+### 2. Multi-Packet Burst Batching
 Demonstrates packing multiple sensor messages into a single frame to minimize socket overhead:
 ```bash
 cargo run --example multipacket_burst --features std
 ```
 
-### 2. Desktop Mock Client
+### 3. Desktop Mock Client
 Demonstrates complete connect, subscribe, publish, unsubscribe, and disconnect lifecycle over TCP:
 ```bash
 cargo run --example desktop_mock --features std
 ```
 
-### 3. MQTT over QUIC Client
+### 4. MQTT over QUIC Client
 Demonstrates QUIC stream multiplexing and sub-millisecond datagram telemetry:
 ```bash
 cargo run --example quic_client --features transport-quic

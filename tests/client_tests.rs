@@ -333,6 +333,10 @@ impl embedded_io_async::Write for MockEmbeddedIoStream {
         self.tx_queue.extend(buf.iter().copied());
         Ok(buf.len())
     }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 #[tokio::test]
@@ -345,7 +349,10 @@ async fn test_embedded_io_transport_compatibility() {
     let options = MqttOptions::new("esp32-sensor", "192.168.1.1", 1883);
     let mut client: MqttClient<_, 8, 512> = MqttClient::new(transport, options);
 
-    client.connect().await.expect("Connect over EmbeddedIoTransport should succeed");
+    client
+        .connect()
+        .await
+        .expect("Connect over EmbeddedIoTransport should succeed");
     assert_eq!(client.state(), ConnectionState::Connected);
 
     client
@@ -383,6 +390,10 @@ async fn test_embedded_io_split_transport_compatibility() {
             self.0.extend(buf.iter().copied());
             Ok(buf.len())
         }
+
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
     }
 
     let mut reader = SplitReader(VecDeque::new());
@@ -393,7 +404,10 @@ async fn test_embedded_io_split_transport_compatibility() {
     let options = MqttOptions::new("esp32-split-uart", "192.168.1.1", 1883);
     let mut client: MqttClient<_, 8, 512> = MqttClient::new(transport, options);
 
-    client.connect().await.expect("Connect over EmbeddedIoSplitTransport should succeed");
+    client
+        .connect()
+        .await
+        .expect("Connect over EmbeddedIoSplitTransport should succeed");
     assert_eq!(client.state(), ConnectionState::Connected);
 
     client

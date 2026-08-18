@@ -128,7 +128,6 @@ where
     type Error = EmbeddedIoError<S::Error>;
 
     async fn send(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
-        use embedded_io_async::Write;
         self.stream
             .write_all(buf)
             .await
@@ -136,7 +135,6 @@ where
     }
 
     async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        use embedded_io_async::Read;
         self.stream.read(buf).await.map_err(EmbeddedIoError::Io)
     }
 }
@@ -191,7 +189,6 @@ where
     type Error = SplitIoError<R::Error, W::Error>;
 
     async fn send(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
-        use embedded_io_async::Write;
         self.writer
             .write_all(buf)
             .await
@@ -199,7 +196,6 @@ where
     }
 
     async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        use embedded_io_async::Read;
         self.reader.read(buf).await.map_err(SplitIoError::Read)
     }
 }
