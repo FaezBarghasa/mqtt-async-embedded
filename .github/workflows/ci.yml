@@ -37,6 +37,9 @@ jobs:
       - name: Build for ARM Cortex-M (embedded target)
         run: cargo build --target thumbv7em-none-eabihf --no-default-features
 
+      - name: Build with defmt logging (embedded RISC-V)
+        run: cargo check --target riscv32imc-unknown-none-elf --no-default-features --features defmt
+
       - name: Test (all features & integration tests)
         run: cargo test --all-features
 

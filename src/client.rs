@@ -22,6 +22,7 @@ pub enum MqttVersion {
 
 /// Configuration options for the `MqttClient`.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct MqttOptions<'a> {
     pub client_id: &'a str,
     pub broker_addr: &'a str,
@@ -87,6 +88,7 @@ pub enum ConnectionState {
 
 /// A publish request descriptor used for high-performance multi-packet burst sending.
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PublishMessage<'a> {
     pub topic: &'a str,
     pub payload: &'a [u8],
@@ -490,6 +492,7 @@ where
 
 /// Represents an event received from the MQTT broker.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum MqttEvent<'p> {
     Publish(Publish<'p>),
     PubAck(PubAck<'p>),

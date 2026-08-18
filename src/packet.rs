@@ -48,6 +48,7 @@ pub trait DecodePacket<'a>: Sized {
 
 /// An enumeration of all possible MQTT control packets.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum MqttPacket<'a> {
     Connect(Connect<'a>),
     ConnAck(ConnAck<'a>),
@@ -167,6 +168,7 @@ where
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Property<'a> {
     pub id: u8,
     pub data: &'a [u8],
@@ -174,6 +176,7 @@ pub struct Property<'a> {
 
 // --- Last Will and Testament Config ---
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Will<'a> {
     pub topic: &'a str,
     pub payload: &'a [u8],
@@ -196,6 +199,7 @@ impl<'a> Will<'a> {
 
 // --- CONNECT Packet ---
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Connect<'a> {
     pub clean_session: bool,
     pub keep_alive: u16,
@@ -399,6 +403,7 @@ impl<'a> DecodePacket<'a> for Connect<'a> {
 
 // --- CONNACK Packet ---
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ConnAck<'a> {
     pub session_present: bool,
     pub reason_code: u8,
@@ -434,6 +439,7 @@ impl<'a> DecodePacket<'a> for ConnAck<'a> {
 
 // --- PUBLISH Packet ---
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Publish<'a> {
     pub dup: bool,
     pub qos: QoS,
@@ -577,6 +583,7 @@ impl<'a> DecodePacket<'a> for Publish<'a> {
 
 // --- PUBACK Packet ---
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PubAck<'a> {
     pub packet_id: u16,
     pub reason_code: u8,
@@ -664,6 +671,7 @@ impl<'a> DecodePacket<'a> for PubAck<'a> {
 
 // --- SUBSCRIBE Packet ---
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Subscribe<'a> {
     pub packet_id: u16,
     pub topics: Vec<(&'a str, QoS), 8>,
@@ -775,6 +783,7 @@ impl<'a> DecodePacket<'a> for Subscribe<'a> {
 
 // --- SUBACK Packet ---
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SubAck<'a> {
     pub packet_id: u16,
     pub reason_codes: Vec<u8, 8>,
@@ -819,6 +828,7 @@ impl<'a> DecodePacket<'a> for SubAck<'a> {
 
 // --- UNSUBSCRIBE Packet ---
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Unsubscribe<'a> {
     pub packet_id: u16,
     pub topics: Vec<&'a str, 8>,
@@ -922,6 +932,7 @@ impl<'a> DecodePacket<'a> for Unsubscribe<'a> {
 
 // --- UNSUBACK Packet ---
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct UnsubAck<'a> {
     pub packet_id: u16,
     pub reason_codes: Vec<u8, 8>,
@@ -966,6 +977,7 @@ impl<'a> DecodePacket<'a> for UnsubAck<'a> {
 
 // --- PINGREQ Packet ---
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PingReq;
 
 impl EncodePacket for PingReq {
@@ -985,6 +997,7 @@ impl EncodePacket for PingReq {
 
 // --- PINGRESP Packet ---
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PingResp;
 
 impl EncodePacket for PingResp {
@@ -1004,6 +1017,7 @@ impl EncodePacket for PingResp {
 
 // --- DISCONNECT Packet ---
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Disconnect<'a> {
     pub reason_code: u8,
     pub properties: Vec<Property<'a>, 8>,
