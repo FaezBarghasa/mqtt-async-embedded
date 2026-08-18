@@ -1,8 +1,8 @@
 //! Unit and Integration Tests for High-Performance MQTT Engine
 
 use mqtt_async_embedded::packet::{
-    Connect, ConnAck, DecodePacket, Disconnect, EncodePacket, MqttPacket, PingReq, PubAck,
-    Publish, QoS, Subscribe, SubAck,
+    Connect, DecodePacket, Disconnect, EncodePacket, MqttPacket, PingReq, PubAck,
+    Publish, QoS, Subscribe,
 };
 use mqtt_async_embedded::client::MqttVersion;
 use mqtt_async_embedded::util::{

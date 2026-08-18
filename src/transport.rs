@@ -1,3 +1,5 @@
+#![allow(async_fn_in_trait)]
+
 use core::fmt::Debug;
 
 #[cfg(feature = "std")]

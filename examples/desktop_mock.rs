@@ -3,7 +3,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 #[derive(Debug)]
-struct TransportError(std::io::Error);
+struct TransportError(#[allow(dead_code)] std::io::Error);
 
 impl mqtt_async_embedded::transport::TransportError for TransportError {}
 

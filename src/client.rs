@@ -377,12 +377,12 @@ where
             if let Some(packet) = packet::decode::<T::Error>(&self.rx_buffer[..n], self.options.version)? {
                 match packet {
                     MqttPacket::Publish(p) => {
-                        if p.qos == QoS::AtLeastOnce {
-                            if let Some(pid) = p.packet_id {
-                                let ack = PubAck::new(pid);
-                                if let Ok(len) = ack.encode(&mut self.tx_buffer, self.options.version) {
-                                    let _ = self.transport.send(&self.tx_buffer[..len]).await;
-                                }
+                        if p.qos == QoS::AtLeastOnce
+                            && let Some(pid) = p.packet_id
+                        {
+                            let ack = PubAck::new(pid);
+                            if let Ok(len) = ack.encode(&mut self.tx_buffer, self.options.version) {
+                                let _ = self.transport.send(&self.tx_buffer[..len]).await;
                             }
                         }
                         return Ok(Some(MqttEvent::Publish(p)));
@@ -423,39 +423,37 @@ where
         let n = self.transport.recv(&mut self.rx_buffer).await?;
         if n > 0 {
             let iter = RawPacketFrameIter::new(&self.rx_buffer[..n]);
-            for frame_res in iter {
-                if let Ok(frame) = frame_res {
-                    if let Some(packet) = packet::decode::<T::Error>(frame, self.options.version)? {
-                        match packet {
-                            MqttPacket::Publish(p) => {
-                                if p.qos == QoS::AtLeastOnce {
-                                    if let Some(pid) = p.packet_id {
-                                        let ack = PubAck::new(pid);
-                                        if let Ok(ack_len) = ack.encode(&mut self.tx_buffer, self.options.version) {
-                                            let _ = self.transport.send(&self.tx_buffer[..ack_len]).await;
-                                        }
-                                    }
+            for frame in iter.flatten() {
+                if let Some(packet) = packet::decode::<T::Error>(frame, self.options.version)? {
+                    match packet {
+                        MqttPacket::Publish(p) => {
+                            if p.qos == QoS::AtLeastOnce
+                                && let Some(pid) = p.packet_id
+                            {
+                                let ack = PubAck::new(pid);
+                                if let Ok(ack_len) = ack.encode(&mut self.tx_buffer, self.options.version) {
+                                    let _ = self.transport.send(&self.tx_buffer[..ack_len]).await;
                                 }
-                                let _ = events.push(MqttEvent::Publish(p));
                             }
-                            MqttPacket::PubAck(ack) => {
-                                let _ = events.push(MqttEvent::PubAck(ack));
-                            }
-                            MqttPacket::SubAck(suback) => {
-                                let _ = events.push(MqttEvent::SubAck(suback));
-                            }
-                            MqttPacket::UnsubAck(unsuback) => {
-                                let _ = events.push(MqttEvent::UnsubAck(unsuback));
-                            }
-                            MqttPacket::PingResp => {
-                                let _ = events.push(MqttEvent::PingResp);
-                            }
-                            MqttPacket::Disconnect(disc) => {
-                                self.state = ConnectionState::Disconnected;
-                                let _ = events.push(MqttEvent::Disconnect(disc));
-                            }
-                            _ => {}
+                            let _ = events.push(MqttEvent::Publish(p));
                         }
+                        MqttPacket::PubAck(ack) => {
+                            let _ = events.push(MqttEvent::PubAck(ack));
+                        }
+                        MqttPacket::SubAck(suback) => {
+                            let _ = events.push(MqttEvent::SubAck(suback));
+                        }
+                        MqttPacket::UnsubAck(unsuback) => {
+                            let _ = events.push(MqttEvent::UnsubAck(unsuback));
+                        }
+                        MqttPacket::PingResp => {
+                            let _ = events.push(MqttEvent::PingResp);
+                        }
+                        MqttPacket::Disconnect(disc) => {
+                            self.state = ConnectionState::Disconnected;
+                            let _ = events.push(MqttEvent::Disconnect(disc));
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -535,12 +533,10 @@ where
             .await
             .map_err(MqttError::Transport)?;
 
-        if n > 0 {
-            if let Some(packet) = packet::decode::<Q::Error>(&self.rx_buffer[..n], self.options.version)? {
-                if let MqttPacket::Publish(p) = packet {
-                    return Ok(Some(MqttEvent::Publish(p)));
-                }
-            }
+        if n > 0
+            && let Some(MqttPacket::Publish(p)) = packet::decode::<Q::Error>(&self.rx_buffer[..n], self.options.version)?
+        {
+            return Ok(Some(MqttEvent::Publish(p)));
         }
         Ok(None)
     }
