@@ -2,13 +2,13 @@
 //!
 //! This module contains `MqttClient`, `MqttSender`, `MqttReceiver`, and multi-packet batching APIs.
 
-use crate::error::{ConnectReasonCode, MqttError, ProtocolError};
+use crate::error::{MqttError, ProtocolError};
 use crate::packet::{
     self, Connect, Disconnect, EncodePacket, MqttPacket, PingReq, PubAck, Publish, QoS, Subscribe,
-    SubAck, UnsubAck, Unsubscribe, Will,
+    Unsubscribe, Will,
 };
 use crate::transport::{self, MqttQuicTransport, MqttTransport};
-use crate::util::{self, RawPacketFrameIter};
+use crate::util::RawPacketFrameIter;
 use embassy_time::{Duration, Instant};
 use heapless::Vec;
 
@@ -373,30 +373,30 @@ where
         }
 
         let n = self.transport.recv(&mut self.rx_buffer).await?;
-        if n > 0 {
-            if let Some(packet) = packet::decode::<T::Error>(&self.rx_buffer[..n], self.options.version)? {
-                match packet {
-                    MqttPacket::Publish(p) => {
-                        if p.qos == QoS::AtLeastOnce
-                            && let Some(pid) = p.packet_id
-                        {
-                            let ack = PubAck::new(pid);
-                            if let Ok(len) = ack.encode(&mut self.tx_buffer, self.options.version) {
-                                let _ = self.transport.send(&self.tx_buffer[..len]).await;
-                            }
+        if n > 0
+            && let Some(packet) = packet::decode::<T::Error>(&self.rx_buffer[..n], self.options.version)?
+        {
+            match packet {
+                MqttPacket::Publish(p) => {
+                    if p.qos == QoS::AtLeastOnce
+                        && let Some(pid) = p.packet_id
+                    {
+                        let ack = PubAck::new(pid);
+                        if let Ok(len) = ack.encode(&mut self.tx_buffer, self.options.version) {
+                            let _ = self.transport.send(&self.tx_buffer[..len]).await;
                         }
-                        return Ok(Some(MqttEvent::Publish(p)));
                     }
-                    MqttPacket::PubAck(ack) => return Ok(Some(MqttEvent::PubAck(ack))),
-                    MqttPacket::SubAck(suback) => return Ok(Some(MqttEvent::SubAck(suback))),
-                    MqttPacket::UnsubAck(unsuback) => return Ok(Some(MqttEvent::UnsubAck(unsuback))),
-                    MqttPacket::PingResp => return Ok(Some(MqttEvent::PingResp)),
-                    MqttPacket::Disconnect(disc) => {
-                        self.state = ConnectionState::Disconnected;
-                        return Ok(Some(MqttEvent::Disconnect(disc)));
-                    }
-                    _ => {}
+                    return Ok(Some(MqttEvent::Publish(p)));
                 }
+                MqttPacket::PubAck(ack) => return Ok(Some(MqttEvent::PubAck(ack))),
+                MqttPacket::SubAck(suback) => return Ok(Some(MqttEvent::SubAck(suback))),
+                MqttPacket::UnsubAck(unsuback) => return Ok(Some(MqttEvent::UnsubAck(unsuback))),
+                MqttPacket::PingResp => return Ok(Some(MqttEvent::PingResp)),
+                MqttPacket::Disconnect(disc) => {
+                    self.state = ConnectionState::Disconnected;
+                    return Ok(Some(MqttEvent::Disconnect(disc)));
+                }
+                _ => {}
             }
         }
         Ok(None)

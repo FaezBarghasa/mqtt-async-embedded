@@ -86,6 +86,7 @@ impl TransportError for embassy_net::tcp::Error {}
 #[cfg(feature = "transport-smoltcp")]
 pub struct TcpTransport<'a> {
     socket: embassy_net::tcp::TcpSocket<'a>,
+    #[allow(dead_code)]
     timeout: embassy_time::Duration,
 }
 
@@ -106,7 +107,6 @@ impl<'a> MqttTransport for TcpTransport<'a> {
     }
 
     async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        use embedded_io_async::Read;
         self.socket.read(buf).await
     }
 }
@@ -142,7 +142,6 @@ impl MqttQuicSendStream for QuinnSendStream {
     type Error = QuinnError;
 
     async fn write(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
-        use tokio::io::AsyncWriteExt;
         self.0.write_all(buf).await.map_err(|e| QuinnError(format!("Write error: {e}")))
     }
 
