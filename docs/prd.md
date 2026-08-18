@@ -25,9 +25,9 @@
 | :--- | :--- | :--- | :--- |
 | **FR-01** | Support MQTT v3.1.1 control packet encoding/decoding | High | Implemented |
 | **FR-02** | Support MQTT v5.0 specification via `v5` feature flag | High | Implemented |
-| **FR-03** | Provide connection establishment (`CONNECT` / `CONNACK` handshake) | High | Implemented |
-| **FR-04** | Support message publishing (`PUBLISH`) with QoS 0 & QoS 1 | High | Implemented |
-| **FR-05** | Support topic subscriptions (`SUBSCRIBE` / `SUBACK`) | High | Implemented |
+| **FR-03** | Provide connection establishment (`CONNECT` / `CONNACK` handshake) with Last Will and Testament (LWT) | High | Implemented |
+| **FR-04** | Support message publishing (`PUBLISH`) with QoS 0 & QoS 1 and defensive QoS 2 validation | High | Implemented |
+| **FR-05** | Support topic subscriptions (`SUBSCRIBE` / `SUBACK`) and dynamic unsubscriptions (`UNSUBSCRIBE` / `UNSUBACK`) | High | Implemented |
 | **FR-06** | Automatic heartbeat transmission (`PINGREQ` / `PINGRESP`) during idle polling | High | Implemented |
 | **FR-07** | Hardware-agnostic transport interface (`MqttTransport` trait) | High | Implemented |
 | **FR-08** | Multi-packet burst sending (`publish_batch`) and polling (`poll_batch`) | High | Implemented |

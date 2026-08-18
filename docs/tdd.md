@@ -30,11 +30,14 @@ The `mqtt-async-embedded` crate provides an asynchronous, zero-allocation (`no_s
 ## 2. Key Modules & Subsystems
 
 ### 2.1. Client Module (`src/client.rs`)
-- **`MqttOptions<'a>`**: Holds `client_id`, `broker_addr`, `broker_port`, `keep_alive`, `clean_session`, and optional authentication credentials.
+- **`MqttOptions<'a>`**: Holds `client_id`, `broker_addr`, `broker_port`, `keep_alive`, `clean_session`, `username`, `password`, and `will` (`Will<'a>`).
 - **`MqttClient<'a, T, MAX_TOPICS, BUF_SIZE>`**:
   - `transport`: Generic parameter `T` implementing `MqttTransport`.
+  - `publish(topic, payload, qos)`: Publishes single message with QoS validation.
   - `publish_batch(&[PublishMessage])`: Packs multiple messages into a single network frame.
-  - `poll_batch()`: Parses and yields all available incoming events in `rx_buffer`.
+  - `subscribe(&[(&str, QoS)])`: Subscribes to topic filters returning packet ID.
+  - `unsubscribe(&[&str])`: Unsubscribes from topic filters returning packet ID.
+  - `poll()` / `poll_batch()`: Parses and yields all available incoming events in `rx_buffer`.
 - **`QuicMqttClient<'a, Q, BUF_SIZE>`**:
   - Specialized real-time client transmitting telemetry directly over unreliable QUIC datagrams.
 
@@ -61,7 +64,7 @@ pub trait MqttQuicTransport {
 ```
 
 ### 2.3. Control Packet Encoding & Decoding (`src/packet.rs` & `src/util.rs`)
-- **Trait `EncodePacket` / `DecodePacket`**: Zero-copy packet serialization and deserialization.
+- **Trait `EncodePacket` / `DecodePacket`**: Zero-copy packet serialization and deserialization with strict slice bounds checks (`BufferTooSmall`, `IncompletePacket`).
 - **`RawPacketFrameIter`**: Zero-copy streaming iterator that slices and parses multiple MQTT packets from a single continuous receive buffer.
 
 ---
@@ -91,9 +94,10 @@ Designed specifically for cooperative async executors like `embassy-executor`. P
 
 1. **Unit Testing (`cargo test --features std`)**:
    - Variable-byte integer encoding/peeking tests.
-   - Packet codec roundtrip tests (`Publish`, `Subscribe`, `PubAck`, `ConnAck`, `Disconnect`).
+   - Packet codec roundtrip tests (`Publish`, `Subscribe`, `Unsubscribe`, `Connect` with LWT, `PubAck`, `ConnAck`, `Disconnect`).
+   - Bounds safety and malformed packet tests (`read_properties` truncation, 0-byte buffer encoding).
    - Multi-packet streaming frame iteration tests (`RawPacketFrameIter`).
 2. **Integration Testing (`examples/desktop_mock.rs` & `examples/multipacket_burst.rs`)**:
    - Batch packet burst transmission verification.
-   - TCP lifecycle connection tests.
+   - TCP lifecycle connection, subscription, and disconnection tests.
 

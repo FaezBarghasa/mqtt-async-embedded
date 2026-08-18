@@ -33,7 +33,8 @@ pub trait MqttTransport {
 - Implements Rust 2024 edition native `async fn` traits without allocating boxed futures.
 
 ### 2.4. Protocol Flexibility & Feature Modularization
-- Supports both MQTT **v3.1.1** and **v5.0** protocol specifications controlled via conditional feature compilation (`cfg(feature = "v5")`).
+- Supports both MQTT **v3.1.1** and **v5.0** protocol specifications with rich properties, reason codes, and user property pairs.
+- Full support for **Last Will and Testament (LWT)**, **`UNSUBSCRIBE` / `UNSUBACK`**, and broker QoS 2 handshakes (`PUBREC`, `PUBREL`, `PUBCOMP`).
 - Modular logging with zero-overhead `defmt` support for microcontrollers or standard `log`/`env_logger` on desktop host environments.
 
 ---
@@ -45,13 +46,21 @@ Received MQTT packets (such as `Publish<'p>`) borrow slice references directly f
 ```rust
 pub enum MqttEvent<'p> {
     Publish(Publish<'p>),
+    PubAck(PubAck<'p>),
+    SubAck(packet::SubAck<'p>),
+    UnsubAck(packet::UnsubAck<'p>),
+    PingResp,
+    Disconnect(Disconnect<'p>),
 }
 ```
 This guarantees zero heap copies while ensuring safety: the event reference cannot outlive the lifetime of the client's mutable `poll()` borrow.
 
-### 3.2. Buffer Allocation Strategy
+### 3.2. Defensive Bounds Checking & Resilient Codecs
+All serialization and deserialization functions use checked slice indexing (`get()`, `get_mut()`) rather than unchecked direct index offsets, ensuring that malformed, truncated, or malicious broker packets cleanly bubble up as `MqttError::Protocol(ProtocolError::MalformedPacket)` or `MqttError::BufferTooSmall` rather than triggering panic aborts.
+
+### 3.3. Buffer Allocation Strategy
 - `BUF_SIZE`: Fixed array size for transmit/receive buffers (default standard recommendation: 512B - 2048B).
-- `MAX_TOPICS`: Maximum allowed concurrent subscriptions or filters stored statically.
+- `MAX_TOPICS`: Maximum allowed concurrent subscriptions or filters stored statically in `heapless::Vec`.
 
 ---
 
@@ -61,5 +70,5 @@ This guarantees zero heap copies while ensuring safety: the event reference cann
 | :--- | :--- |
 | **Microcontroller HALs** | `embassy-stm32`, `embassy-nrf`, `esp-hal`, `rp-hal` |
 | **Async Runtime** | `embassy-executor` |
-| **Network Stack** | `embassy-net` (`smoltcp`), UART AT drivers |
-| **Host System** | `tokio`, `std::net::TcpStream` (Desktop testing / mocks) |
+| **Network Stack** | `embassy-net` (`smoltcp`), UART AT drivers, Cellular modems |
+| **Host / Edge System** | `tokio`, `std::net::TcpStream`, `quinn` (QUIC / H3) |

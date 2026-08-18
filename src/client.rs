@@ -120,8 +120,7 @@ where
     next_packet_id: u16,
 }
 
-impl<'a, T, const MAX_TOPICS: usize, const BUF_SIZE: usize>
-    MqttClient<'a, T, MAX_TOPICS, BUF_SIZE>
+impl<'a, T, const MAX_TOPICS: usize, const BUF_SIZE: usize> MqttClient<'a, T, MAX_TOPICS, BUF_SIZE>
 where
     T: MqttTransport,
 {
@@ -289,10 +288,7 @@ where
     }
 
     /// Subscribes to one or more topic filters.
-    pub async fn subscribe(
-        &mut self,
-        topics: &[(&str, QoS)],
-    ) -> Result<u16, MqttError<T::Error>>
+    pub async fn subscribe(&mut self, topics: &[(&str, QoS)]) -> Result<u16, MqttError<T::Error>>
     where
         T::Error: transport::TransportError,
     {
@@ -303,7 +299,9 @@ where
         let pid = self.get_next_packet_id();
         let mut sub_packet = Subscribe::new(pid);
         for (topic, qos) in topics {
-            sub_packet.add_topic(topic, *qos).map_err(MqttError::cast_transport_error)?;
+            sub_packet
+                .add_topic(topic, *qos)
+                .map_err(MqttError::cast_transport_error)?;
         }
 
         let len = sub_packet
@@ -316,10 +314,7 @@ where
     }
 
     /// Unsubscribes from one or more topic filters.
-    pub async fn unsubscribe(
-        &mut self,
-        topics: &[&str],
-    ) -> Result<u16, MqttError<T::Error>>
+    pub async fn unsubscribe(&mut self, topics: &[&str]) -> Result<u16, MqttError<T::Error>>
     where
         T::Error: transport::TransportError,
     {
@@ -330,7 +325,9 @@ where
         let pid = self.get_next_packet_id();
         let mut unsub_packet = Unsubscribe::new(pid);
         for topic in topics {
-            unsub_packet.add_topic(topic).map_err(MqttError::cast_transport_error)?;
+            unsub_packet
+                .add_topic(topic)
+                .map_err(MqttError::cast_transport_error)?;
         }
 
         let len = unsub_packet
@@ -367,14 +364,17 @@ where
         }
 
         if self.last_tx_time.elapsed() >= self.options.keep_alive {
-            let len = PingReq.encode(&mut self.tx_buffer, self.options.version).map_err(MqttError::cast_transport_error)?;
+            let len = PingReq
+                .encode(&mut self.tx_buffer, self.options.version)
+                .map_err(MqttError::cast_transport_error)?;
             self.transport.send(&self.tx_buffer[..len]).await?;
             self.last_tx_time = Instant::now();
         }
 
         let n = self.transport.recv(&mut self.rx_buffer).await?;
         if n > 0
-            && let Some(packet) = packet::decode::<T::Error>(&self.rx_buffer[..n], self.options.version)?
+            && let Some(packet) =
+                packet::decode::<T::Error>(&self.rx_buffer[..n], self.options.version)?
         {
             match packet {
                 MqttPacket::Publish(p) => {
@@ -415,7 +415,9 @@ where
         }
 
         if self.last_tx_time.elapsed() >= self.options.keep_alive {
-            let len = PingReq.encode(&mut self.tx_buffer, self.options.version).map_err(MqttError::cast_transport_error)?;
+            let len = PingReq
+                .encode(&mut self.tx_buffer, self.options.version)
+                .map_err(MqttError::cast_transport_error)?;
             self.transport.send(&self.tx_buffer[..len]).await?;
             self.last_tx_time = Instant::now();
         }
@@ -431,7 +433,9 @@ where
                                 && let Some(pid) = p.packet_id
                             {
                                 let ack = PubAck::new(pid);
-                                if let Ok(ack_len) = ack.encode(&mut self.tx_buffer, self.options.version) {
+                                if let Ok(ack_len) =
+                                    ack.encode(&mut self.tx_buffer, self.options.version)
+                                {
                                     let _ = self.transport.send(&self.tx_buffer[..ack_len]).await;
                                 }
                             }
@@ -507,7 +511,11 @@ where
     }
 
     /// Sends ultra-fast real-time telemetry via unreliable QUIC datagrams (zero handshake / zero HoL blocking).
-    pub async fn publish_datagram(&mut self, topic: &str, payload: &[u8]) -> Result<(), MqttError<Q::Error>>
+    pub async fn publish_datagram(
+        &mut self,
+        topic: &str,
+        payload: &[u8],
+    ) -> Result<(), MqttError<Q::Error>>
     where
         Q::Error: transport::TransportError,
     {
@@ -523,7 +531,9 @@ where
     }
 
     /// Receives a telemetry datagram.
-    pub async fn recv_datagram<'p>(&'p mut self) -> Result<Option<MqttEvent<'p>>, MqttError<Q::Error>>
+    pub async fn recv_datagram<'p>(
+        &'p mut self,
+    ) -> Result<Option<MqttEvent<'p>>, MqttError<Q::Error>>
     where
         Q::Error: transport::TransportError,
     {
@@ -534,7 +544,8 @@ where
             .map_err(MqttError::Transport)?;
 
         if n > 0
-            && let Some(MqttPacket::Publish(p)) = packet::decode::<Q::Error>(&self.rx_buffer[..n], self.options.version)?
+            && let Some(MqttPacket::Publish(p)) =
+                packet::decode::<Q::Error>(&self.rx_buffer[..n], self.options.version)?
         {
             return Ok(Some(MqttEvent::Publish(p)));
         }

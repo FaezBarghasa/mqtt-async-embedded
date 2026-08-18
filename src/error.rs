@@ -59,9 +59,7 @@ impl<T: transport::TransportError> From<T> for MqttError<T> {
 impl<T: transport::TransportError> MqttError<T> {
     /// Helper method to convert an `MqttError` with a placeholder transport error
     /// into an `MqttError` with a specific transport error type `T`.
-    pub fn cast_transport_error<E: transport::TransportError>(
-        other: MqttError<E>,
-    ) -> MqttError<T> {
+    pub fn cast_transport_error<E: transport::TransportError>(other: MqttError<E>) -> MqttError<T> {
         match other {
             MqttError::Protocol(p) => MqttError::Protocol(p),
             MqttError::ConnectionRefused(c) => MqttError::ConnectionRefused(c),
@@ -133,5 +131,3 @@ pub enum ProtocolError {
     /// QoS level is not supported (e.g. QoS 2 ExactlyOnce).
     UnsupportedQoS,
 }
-
-

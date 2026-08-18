@@ -2,10 +2,10 @@
 
 use core::fmt::Debug;
 
-#[cfg(feature = "std")]
-use std::string::String;
-#[cfg(feature = "std")]
+#[cfg(feature = "transport-quic")]
 use std::format;
+#[cfg(feature = "transport-quic")]
+use std::string::String;
 
 pub use crate::error::ErrorPlaceHolder;
 
@@ -48,13 +48,16 @@ pub trait MqttQuicTransport {
     type RecvStream: MqttQuicRecvStream<Error = Self::Error>;
 
     /// Opens a bidirectional stream (ideal for control packets CONNECT/CONNACK or QoS 1 request-response).
-    async fn open_bi_stream(&mut self) -> Result<(Self::SendStream, Self::RecvStream), Self::Error>;
+    async fn open_bi_stream(&mut self)
+    -> Result<(Self::SendStream, Self::RecvStream), Self::Error>;
 
     /// Opens a unidirectional send stream (ideal for QoS 0 telemetry bursts).
     async fn open_uni_stream(&mut self) -> Result<Self::SendStream, Self::Error>;
 
     /// Accepts an incoming bidirectional stream initiated by the broker.
-    async fn accept_bi_stream(&mut self) -> Result<(Self::SendStream, Self::RecvStream), Self::Error>;
+    async fn accept_bi_stream(
+        &mut self,
+    ) -> Result<(Self::SendStream, Self::RecvStream), Self::Error>;
 
     /// Sends an unreliable QUIC datagram (fastest possible transfer for real-time sensor streams).
     async fn send_datagram(&mut self, data: &[u8]) -> Result<(), Self::Error>;
@@ -142,11 +145,16 @@ impl MqttQuicSendStream for QuinnSendStream {
     type Error = QuinnError;
 
     async fn write(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
-        self.0.write_all(buf).await.map_err(|e| QuinnError(format!("Write error: {e}")))
+        self.0
+            .write_all(buf)
+            .await
+            .map_err(|e| QuinnError(format!("Write error: {e}")))
     }
 
     async fn finish(&mut self) -> Result<(), Self::Error> {
-        self.0.finish().map_err(|e| QuinnError(format!("Finish error: {e}")))
+        self.0
+            .finish()
+            .map_err(|e| QuinnError(format!("Finish error: {e}")))
     }
 }
 
@@ -158,7 +166,12 @@ impl MqttQuicRecvStream for QuinnRecvStream {
     type Error = QuinnError;
 
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        match self.0.read(buf).await.map_err(|e| QuinnError(format!("Read error: {e}")))? {
+        match self
+            .0
+            .read(buf)
+            .await
+            .map_err(|e| QuinnError(format!("Read error: {e}")))?
+        {
             Some(n) => Ok(n),
             None => Ok(0),
         }
@@ -171,27 +184,49 @@ impl MqttQuicTransport for QuinnQuicTransport {
     type SendStream = QuinnSendStream;
     type RecvStream = QuinnRecvStream;
 
-    async fn open_bi_stream(&mut self) -> Result<(Self::SendStream, Self::RecvStream), Self::Error> {
-        let (send, recv) = self.connection.open_bi().await.map_err(|e| QuinnError(format!("Open bi error: {e}")))?;
+    async fn open_bi_stream(
+        &mut self,
+    ) -> Result<(Self::SendStream, Self::RecvStream), Self::Error> {
+        let (send, recv) = self
+            .connection
+            .open_bi()
+            .await
+            .map_err(|e| QuinnError(format!("Open bi error: {e}")))?;
         Ok((QuinnSendStream(send), QuinnRecvStream(recv)))
     }
 
     async fn open_uni_stream(&mut self) -> Result<Self::SendStream, Self::Error> {
-        let send = self.connection.open_uni().await.map_err(|e| QuinnError(format!("Open uni error: {e}")))?;
+        let send = self
+            .connection
+            .open_uni()
+            .await
+            .map_err(|e| QuinnError(format!("Open uni error: {e}")))?;
         Ok(QuinnSendStream(send))
     }
 
-    async fn accept_bi_stream(&mut self) -> Result<(Self::SendStream, Self::RecvStream), Self::Error> {
-        let (send, recv) = self.connection.accept_bi().await.map_err(|e| QuinnError(format!("Accept bi error: {e}")))?;
+    async fn accept_bi_stream(
+        &mut self,
+    ) -> Result<(Self::SendStream, Self::RecvStream), Self::Error> {
+        let (send, recv) = self
+            .connection
+            .accept_bi()
+            .await
+            .map_err(|e| QuinnError(format!("Accept bi error: {e}")))?;
         Ok((QuinnSendStream(send), QuinnRecvStream(recv)))
     }
 
     async fn send_datagram(&mut self, data: &[u8]) -> Result<(), Self::Error> {
-        self.connection.send_datagram(bytes::Bytes::copy_from_slice(data)).map_err(|e| QuinnError(format!("Datagram error: {e}")))
+        self.connection
+            .send_datagram(bytes::Bytes::copy_from_slice(data))
+            .map_err(|e| QuinnError(format!("Datagram error: {e}")))
     }
 
     async fn recv_datagram(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        let dgram = self.connection.read_datagram().await.map_err(|e| QuinnError(format!("Datagram recv error: {e}")))?;
+        let dgram = self
+            .connection
+            .read_datagram()
+            .await
+            .map_err(|e| QuinnError(format!("Datagram recv error: {e}")))?;
         if dgram.len() > buf.len() {
             return Err(QuinnError("Buffer too small for datagram".into()));
         }

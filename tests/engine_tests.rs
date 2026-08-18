@@ -1,13 +1,13 @@
 //! Unit and Integration Tests for High-Performance MQTT Engine
 
-use mqtt_async_embedded::packet::{
-    Connect, DecodePacket, Disconnect, EncodePacket, MqttPacket, PingReq, PubAck,
-    Publish, QoS, Subscribe,
-};
 use mqtt_async_embedded::client::MqttVersion;
+use mqtt_async_embedded::packet::{
+    Connect, DecodePacket, Disconnect, EncodePacket, MqttPacket, PingReq, PubAck, Publish, QoS,
+    Subscribe,
+};
 use mqtt_async_embedded::util::{
-    peek_variable_byte_integer, read_utf8_string, write_utf8_string,
-    write_variable_byte_integer, RawPacketFrameIter,
+    RawPacketFrameIter, peek_variable_byte_integer, read_utf8_string, write_utf8_string,
+    write_variable_byte_integer,
 };
 
 #[test]
@@ -76,14 +76,20 @@ fn test_raw_packet_frame_iter_multipacket() {
 
     // Encode 3 packets back-to-back in the same buffer
     let p1 = Publish::new("a/1", b"one", QoS::AtMostOnce);
-    let l1 = p1.encode(&mut stream_buf[offset..], MqttVersion::V3).unwrap();
+    let l1 = p1
+        .encode(&mut stream_buf[offset..], MqttVersion::V3)
+        .unwrap();
     offset += l1;
 
     let p2 = Publish::new("a/2", b"two", QoS::AtMostOnce);
-    let l2 = p2.encode(&mut stream_buf[offset..], MqttVersion::V3).unwrap();
+    let l2 = p2
+        .encode(&mut stream_buf[offset..], MqttVersion::V3)
+        .unwrap();
     offset += l2;
 
-    let ping_len = PingReq.encode(&mut stream_buf[offset..], MqttVersion::V3).unwrap();
+    let ping_len = PingReq
+        .encode(&mut stream_buf[offset..], MqttVersion::V3)
+        .unwrap();
     offset += ping_len;
 
     let iter = RawPacketFrameIter::new(&stream_buf[..offset]);
@@ -148,7 +154,8 @@ fn test_unsubscribe_encode_decode_roundtrip() {
     unsub.add_topic("sensors/humidity").unwrap();
 
     let len = unsub.encode(&mut buf, MqttVersion::V3).unwrap();
-    let decoded = mqtt_async_embedded::packet::Unsubscribe::decode(&buf[..len], MqttVersion::V3).unwrap();
+    let decoded =
+        mqtt_async_embedded::packet::Unsubscribe::decode(&buf[..len], MqttVersion::V3).unwrap();
 
     assert_eq!(decoded.packet_id, 101);
     assert_eq!(decoded.topics.len(), 2);
@@ -184,8 +191,14 @@ fn test_connect_with_last_will_and_testament() {
 fn test_pubrec_pubrel_pubcomp_decoding() {
     // PUBREC header 0x50, remaining length 2, packet_id 42 (0x00, 0x2A)
     let pubrec_bytes = [0x50, 0x02, 0x00, 0x2A];
-    let packet = mqtt_async_embedded::packet::decode::<()>(&pubrec_bytes, MqttVersion::V3).unwrap().unwrap();
-    if let MqttPacket::PubRec { packet_id, reason_code } = packet {
+    let packet = mqtt_async_embedded::packet::decode::<()>(&pubrec_bytes, MqttVersion::V3)
+        .unwrap()
+        .unwrap();
+    if let MqttPacket::PubRec {
+        packet_id,
+        reason_code,
+    } = packet
+    {
         assert_eq!(packet_id, 42);
         assert_eq!(reason_code, 0);
     } else {
@@ -194,8 +207,14 @@ fn test_pubrec_pubrel_pubcomp_decoding() {
 
     // PUBREL header 0x62, remaining length 2, packet_id 43 (0x00, 0x2B)
     let pubrel_bytes = [0x62, 0x02, 0x00, 0x2B];
-    let packet = mqtt_async_embedded::packet::decode::<()>(&pubrel_bytes, MqttVersion::V3).unwrap().unwrap();
-    if let MqttPacket::PubRel { packet_id, reason_code } = packet {
+    let packet = mqtt_async_embedded::packet::decode::<()>(&pubrel_bytes, MqttVersion::V3)
+        .unwrap()
+        .unwrap();
+    if let MqttPacket::PubRel {
+        packet_id,
+        reason_code,
+    } = packet
+    {
         assert_eq!(packet_id, 43);
         assert_eq!(reason_code, 0);
     } else {
@@ -204,8 +223,14 @@ fn test_pubrec_pubrel_pubcomp_decoding() {
 
     // PUBCOMP header 0x70, remaining length 2, packet_id 44 (0x00, 0x2C)
     let pubcomp_bytes = [0x70, 0x02, 0x00, 0x2C];
-    let packet = mqtt_async_embedded::packet::decode::<()>(&pubcomp_bytes, MqttVersion::V3).unwrap().unwrap();
-    if let MqttPacket::PubComp { packet_id, reason_code } = packet {
+    let packet = mqtt_async_embedded::packet::decode::<()>(&pubcomp_bytes, MqttVersion::V3)
+        .unwrap()
+        .unwrap();
+    if let MqttPacket::PubComp {
+        packet_id,
+        reason_code,
+    } = packet
+    {
         assert_eq!(packet_id, 44);
         assert_eq!(reason_code, 0);
     } else {

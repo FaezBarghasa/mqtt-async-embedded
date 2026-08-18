@@ -71,8 +71,7 @@ pub fn write_variable_byte_integer(
         if val > 0 {
             encoded_byte |= 128;
         }
-        *buf.get_mut(*cursor)
-            .ok_or(MqttError::BufferTooSmall)? = encoded_byte;
+        *buf.get_mut(*cursor).ok_or(MqttError::BufferTooSmall)? = encoded_byte;
         *cursor += 1;
         if val == 0 {
             break;
@@ -206,21 +205,27 @@ pub fn read_properties<'a>(
             // UTF-8 string or binary data
             0x03 | 0x08 | 0x12 | 0x15 | 0x1A | 0x1C | 0x1F | 0x09 | 0x16 => {
                 let len = u16::from_be_bytes([
-                    *buf.get(data_start).ok_or(MqttError::Protocol(ProtocolError::MalformedPacket))?,
-                    *buf.get(data_start + 1).ok_or(MqttError::Protocol(ProtocolError::MalformedPacket))?,
+                    *buf.get(data_start)
+                        .ok_or(MqttError::Protocol(ProtocolError::MalformedPacket))?,
+                    *buf.get(data_start + 1)
+                        .ok_or(MqttError::Protocol(ProtocolError::MalformedPacket))?,
                 ]) as usize;
                 2 + len
             }
             // User Property (pair of UTF-8 strings)
             0x26 => {
                 let key_len = u16::from_be_bytes([
-                    *buf.get(data_start).ok_or(MqttError::Protocol(ProtocolError::MalformedPacket))?,
-                    *buf.get(data_start + 1).ok_or(MqttError::Protocol(ProtocolError::MalformedPacket))?,
+                    *buf.get(data_start)
+                        .ok_or(MqttError::Protocol(ProtocolError::MalformedPacket))?,
+                    *buf.get(data_start + 1)
+                        .ok_or(MqttError::Protocol(ProtocolError::MalformedPacket))?,
                 ]) as usize;
                 let val_start = data_start + 2 + key_len;
                 let val_len = u16::from_be_bytes([
-                    *buf.get(val_start).ok_or(MqttError::Protocol(ProtocolError::MalformedPacket))?,
-                    *buf.get(val_start + 1).ok_or(MqttError::Protocol(ProtocolError::MalformedPacket))?,
+                    *buf.get(val_start)
+                        .ok_or(MqttError::Protocol(ProtocolError::MalformedPacket))?,
+                    *buf.get(val_start + 1)
+                        .ok_or(MqttError::Protocol(ProtocolError::MalformedPacket))?,
                 ]) as usize;
                 2 + key_len + 2 + val_len
             }

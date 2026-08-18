@@ -57,7 +57,10 @@ async fn main() {
         PublishMessage::new("telemetry/gyro/roll", b"-1.20", QoS::AtMostOnce),
     ];
 
-    println!("Publishing batch of {} messages in a single frame burst...", batch.len());
+    println!(
+        "Publishing batch of {} messages in a single frame burst...",
+        batch.len()
+    );
     // In mock mode, we demonstrate packing multiple packets
     match client.publish_batch(&batch).await {
         Ok(count) => println!("Successfully packed and sent {} packets!", count),

@@ -22,8 +22,13 @@ Byte 2+| Remaining Length (1 - 4 bytes Variable Byte Integer)
 | `0x02` | **`CONNACK`** | Connect Acknowledgment | Broker → Client |
 | `0x03` | **`PUBLISH`** | Publish Message | Client ↔ Broker |
 | `0x04` | **`PUBACK`** | Publish Acknowledgment (QoS 1) | Client ↔ Broker |
+| `0x05` | **`PUBREC`** | Publish Received (QoS 2 delivery part 1) | Broker → Client |
+| `0x06` | **`PUBREL`** | Publish Release (QoS 2 delivery part 2) | Broker → Client |
+| `0x07` | **`PUBCOMP`** | Publish Complete (QoS 2 delivery part 3) | Broker → Client |
 | `0x08` | **`SUBSCRIBE`** | Subscribe Request | Client → Broker |
 | `0x09` | **`SUBACK`** | Subscribe Acknowledgment | Broker → Client |
+| `0x0A` | **`UNSUBSCRIBE`** | Unsubscribe Request | Client → Broker |
+| `0x0B` | **`UNSUBACK`** | Unsubscribe Acknowledgment | Broker → Client |
 | `0x0C` | **`PINGREQ`** | PING Request (Keep-alive) | Client → Broker |
 | `0x0D` | **`PINGRESP`** | PING Response | Broker → Client |
 | `0x0E` | **`DISCONNECT`** | Disconnect Notification | Client → Broker |
@@ -34,7 +39,8 @@ Byte 2+| Remaining Length (1 - 4 bytes Variable Byte Integer)
 
 ### 2.1. Quality of Service (QoS) Level
 ```rust
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
+#[repr(u8)]
 pub enum QoS {
     AtMostOnce = 0,
     AtLeastOnce = 1,
@@ -42,7 +48,18 @@ pub enum QoS {
 }
 ```
 
-### 2.2. CONNECT Packet Schema (`Connect<'a>`)
+### 2.2. Last Will and Testament Schema (`Will<'a>`)
+```rust
+pub struct Will<'a> {
+    pub topic: &'a str,
+    pub payload: &'a [u8],
+    pub qos: QoS,
+    pub retain: bool,
+    pub properties: Vec<Property<'a>, 8>,
+}
+```
+
+### 2.3. CONNECT Packet Schema (`Connect<'a>`)
 ```rust
 pub struct Connect<'a> {
     pub clean_session: bool,
@@ -50,11 +67,12 @@ pub struct Connect<'a> {
     pub client_id: &'a str,
     pub username: Option<&'a str>,
     pub password: Option<&'a str>,
+    pub will: Option<Will<'a>>,
     pub properties: Vec<Property<'a>, 8>,
 }
 ```
 
-### 2.3. CONNACK Packet Schema (`ConnAck<'a>`)
+### 2.4. CONNACK Packet Schema (`ConnAck<'a>`)
 ```rust
 pub struct ConnAck<'a> {
     pub session_present: bool,
@@ -63,7 +81,7 @@ pub struct ConnAck<'a> {
 }
 ```
 
-### 2.4. PUBLISH Packet Schema (`Publish<'a>`)
+### 2.5. PUBLISH Packet Schema (`Publish<'a>`)
 ```rust
 pub struct Publish<'a> {
     pub dup: bool,
@@ -76,7 +94,7 @@ pub struct Publish<'a> {
 }
 ```
 
-### 2.5. SUBSCRIBE & SUBACK Schemas
+### 2.6. SUBSCRIBE & SUBACK Schemas
 ```rust
 pub struct Subscribe<'a> {
     pub packet_id: u16,
@@ -85,6 +103,21 @@ pub struct Subscribe<'a> {
 }
 
 pub struct SubAck<'a> {
+    pub packet_id: u16,
+    pub reason_codes: Vec<u8, 8>,
+    pub properties: Vec<Property<'a>, 8>,
+}
+```
+
+### 2.7. UNSUBSCRIBE & UNSUBACK Schemas
+```rust
+pub struct Unsubscribe<'a> {
+    pub packet_id: u16,
+    pub topics: Vec<&'a str, 8>,
+    pub properties: Vec<Property<'a>, 8>,
+}
+
+pub struct UnsubAck<'a> {
     pub packet_id: u16,
     pub reason_codes: Vec<u8, 8>,
     pub properties: Vec<Property<'a>, 8>,
@@ -131,6 +164,7 @@ pub enum ProtocolError {
     InvalidUtf8String,
     TooManyProperties,
     InvalidTopic,
+    UnsupportedQoS,
 }
 ```
 

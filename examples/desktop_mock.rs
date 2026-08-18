@@ -45,7 +45,9 @@ async fn main() {
             let _ = client.subscribe(&[("sensors/+", QoS::AtLeastOnce)]).await;
 
             println!("Publishing telemetry...");
-            let _ = client.publish("sensors/temp", b"{\"temperature\": 24.5}", QoS::AtLeastOnce).await;
+            let _ = client
+                .publish("sensors/temp", b"{\"temperature\": 24.5}", QoS::AtLeastOnce)
+                .await;
 
             println!("Disconnecting...");
             let _ = client.disconnect().await;

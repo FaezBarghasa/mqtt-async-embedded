@@ -1,4 +1,4 @@
-use mqtt_async_embedded::{MqttOptions, QuicMqttClient};
+use mqtt_async_embedded::MqttOptions;
 
 #[tokio::main]
 async fn main() {
