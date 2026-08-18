@@ -417,3 +417,82 @@ async fn test_embedded_io_split_transport_compatibility() {
 
     assert!(!client.transport().writer().0.is_empty());
 }
+
+#[tokio::test]
+async fn test_realtime_stream_publishing_chunked() {
+    use mqtt_async_embedded::StreamMode;
+
+    let transport = MockTransport::new();
+    transport.feed_incoming(&[0x20, 0x02, 0x00, 0x00]); // CONNACK
+
+    let options = MqttOptions::new("stream-node", "127.0.0.1", 1883)
+        .with_stream_mode(StreamMode::RealTimeStreaming);
+    assert_eq!(options.stream_mode, StreamMode::RealTimeStreaming);
+
+    let mut client: MqttClient<_, 8, 512> = MqttClient::new(transport.clone(), options);
+    client.connect().await.unwrap();
+    transport.drain_outgoing();
+
+    // Stream 60 bytes of audio chunks over topic "sensors/audio"
+    let total_len = 60;
+    let mut stream_writer = client
+        .begin_stream_publish("sensors/audio", total_len, QoS::AtMostOnce)
+        .await
+        .expect("Begin stream publish should succeed");
+
+    assert_eq!(stream_writer.total_bytes(), 60);
+    assert_eq!(stream_writer.remaining_bytes(), 60);
+
+    let chunk_1 = [0xAA; 20];
+    let chunk_2 = [0xBB; 20];
+    let chunk_3 = [0xCC; 20];
+
+    stream_writer.write_chunk(&chunk_1).await.unwrap();
+    assert_eq!(stream_writer.remaining_bytes(), 40);
+
+    stream_writer.write_chunk(&chunk_2).await.unwrap();
+    assert_eq!(stream_writer.remaining_bytes(), 20);
+
+    stream_writer.write_chunk(&chunk_3).await.unwrap();
+    assert_eq!(stream_writer.remaining_bytes(), 0);
+
+    stream_writer
+        .finish()
+        .expect("Finish should succeed when 0 bytes remain");
+
+    // Verify all bytes were received across the wire
+    let wire_bytes = transport.drain_outgoing();
+    // Byte 0: 0x30 (PUBLISH, QoS 0)
+    assert_eq!(wire_bytes[0], 0x30);
+    // Wire bytes should contain header + 60 payload bytes
+    assert!(wire_bytes.len() > 60);
+    assert!(wire_bytes.ends_with(&[0xCC; 20]));
+}
+
+#[tokio::test]
+async fn test_stream_publish_error_guards() {
+    let transport = MockTransport::new();
+    transport.feed_incoming(&[0x20, 0x02, 0x00, 0x00]); // CONNACK
+
+    let options = MqttOptions::new("stream-guard", "127.0.0.1", 1883);
+    let mut client: MqttClient<_, 8, 512> = MqttClient::new(transport.clone(), options);
+    client.connect().await.unwrap();
+    transport.drain_outgoing();
+
+    // Test 1: Writing more than declared fails with BufferTooSmall
+    let mut stream_writer = client
+        .begin_stream_publish("sensors/imu", 10, QoS::AtMostOnce)
+        .await
+        .unwrap();
+
+    let oversized_chunk = [0x01; 15];
+    let res = stream_writer.write_chunk(&oversized_chunk).await;
+    assert_eq!(res, Err(MqttError::BufferTooSmall));
+
+    // Test 2: Calling finish when bytes remain fails with IncompletePacket
+    let finish_res = stream_writer.finish();
+    assert_eq!(
+        finish_res,
+        Err(MqttError::Protocol(ProtocolError::IncompletePacket))
+    );
+}

@@ -13,11 +13,15 @@ An `async`, `no_std`-compatible MQTT client library in Rust (2024 edition), desi
 ## Core Highlights
 
 - **`no_std` & `no_alloc` by Default**: Zero dynamic heap allocations across all communication cycles using compile-time const generics and static `heapless` buffers.
+- **Real-Time Streaming Option (`StreamMode::RealTimeStreaming`)**:
+  - `begin_stream_publish()` & `MqttStreamWriter`: Streams large or continuous payloads (audio, camera stills, high-rate IMU) chunk-by-chunk directly across the transport without requiring large RAM buffers on microcontrollers.
+  - Zero-copy, low-latency fast-path dispatch.
 - **High-Throughput Multi-Packet Burst**:
   - `publish_batch(&[PublishMessage])`: Packs multiple telemetry messages into a single network frame burst to minimize socket and hardware write overhead.
   - `poll_batch()`: Parses and yields all available incoming events in a single receive buffer using `RawPacketFrameIter` without dropping packets.
 - **MQTT over QUIC / HTTP/3 (`MqttQuicTransport`)**:
   - Eliminates Head-of-Line (HoL) blocking via stream multiplexing.
+  - Dedicated real-time telemetry streaming channels (`open_telemetry_stream`).
   - Ultra-fast real-time sensor streaming via unreliable QUIC datagrams (`QuicMqttClient`).
   - Native 0-RTT connection resumption.
 - **Protocol Completeness**:
@@ -78,7 +82,20 @@ async fn run_mqtt<T: mqtt_async_embedded::MqttTransport>(transport: T) {
     let sent = client.publish_batch(&batch).await.expect("Batch publish failed");
     defmt::info!("Published {} burst messages in single frame", sent);
 
-    // 7. Polling event loop
+    // 7. Real-time stream publishing (streaming big audio/camera/sensor payload in chunks)
+    let total_audio_bytes = 4096;
+    let mut stream = client
+        .begin_stream_publish("sensors/audio/pcm", total_audio_bytes, QoS::AtMostOnce)
+        .await
+        .expect("Stream begin failed");
+    
+    // Write chunks as they arrive from DMA / ADC buffers without buffering the whole payload
+    for chunk in audio_dma_chunks {
+        stream.write_chunk(chunk).await.expect("Chunk write failed");
+    }
+    stream.finish().expect("Stream finish failed");
+
+    // 8. Polling event loop
     loop {
         match client.poll().await {
             Ok(Some(MqttEvent::Publish(msg))) => {
@@ -201,7 +218,13 @@ Demonstrates complete connect, subscribe, publish, unsubscribe, and disconnect l
 cargo run --example desktop_mock --features std
 ```
 
-### 4. MQTT over QUIC Client
+### 4. Real-Time Telemetry & Chunk Streaming
+Demonstrates zero-RAM streaming of large sensor/audio buffers in chunks and `StreamMode::RealTimeStreaming`:
+```bash
+cargo run --example realtime_stream --features std
+```
+
+### 5. MQTT over QUIC Client
 Demonstrates QUIC stream multiplexing and sub-millisecond datagram telemetry:
 ```bash
 cargo run --example quic_client --features transport-quic

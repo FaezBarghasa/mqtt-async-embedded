@@ -25,7 +25,10 @@ pub mod transport;
 pub mod util;
 
 // Re-export key types for easier access at the crate root.
-pub use client::{MqttClient, MqttEvent, MqttOptions, MqttVersion, PublishMessage, QuicMqttClient};
+pub use client::{
+    MqttClient, MqttEvent, MqttOptions, MqttStreamWriter, MqttVersion, PublishMessage,
+    QuicMqttClient, StreamMode,
+};
 pub use error::{MqttError, ProtocolError};
 pub use packet::{Property, QoS, UnsubAck, Unsubscribe, Will};
 pub use transport::{

@@ -88,3 +88,7 @@ path = "examples/smoltcp_ethernet.rs"
 [[example]]
 name = "esp32_wifi_embassy"
 path = "examples/esp32_wifi_embassy.rs"
+
+[[example]]
+name = "realtime_stream"
+path = "examples/realtime_stream.rs"

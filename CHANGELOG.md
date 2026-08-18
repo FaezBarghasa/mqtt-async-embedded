@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.2.0] - 2026-08-18
 
 ### Added
+- **Real-Time Streaming Option**:
+  - `StreamMode::RealTimeStreaming` and `MqttOptions::with_stream_mode()`.
+  - `begin_stream_publish()` & `MqttStreamWriter`: Zero-allocation streaming writer allowing microcontrollers to stream large or continuous payloads (audio, camera frames, DSP sensor sweeps) chunk-by-chunk directly across the transport.
+  - Dedicated real-time QUIC telemetry streams (`QuicMqttClient::open_telemetry_stream`).
+  - Dedicated runnable streaming example (`examples/realtime_stream.rs`).
 - Universal `embedded-io-async` adapters (`EmbeddedIoTransport` and `EmbeddedIoSplitTransport`) providing seamless compatibility with `esp-hal`, `esp-wifi`, `esp-idf-svc`, and `embassy-net`.
 - First-class support for **ESP32-S Series** (S2, S3) [Xtensa] and **ESP32-C Series** (C2, C3, C6, H2) [RISC-V].
 - Transport accessors on `MqttClient` and `QuicMqttClient` (`transport()`, `transport_mut()`, and `into_transport()`).
@@ -17,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `UNSUBSCRIBE` and `UNSUBACK` packet structures, wire codec, and `MqttClient::unsubscribe()` API.
 - Support decoding `PUBREC`, `PUBREL`, `PUBCOMP`, and `PINGRESP` packets.
 - License file (`LICENSE` - GNU General Public License v3.0 or later).
-- Expanded integration and unit test suite (20 comprehensive tests total).
+- Expanded integration and unit test suite (22 comprehensive tests total).
 - Automated GitHub Actions CI workflow covering `no_std`, `thumbv7em-none-eabihf`, `riscv32imc-unknown-none-elf`, `riscv32imac-unknown-none-elf`, `defmt`, clippy, and formatting.
 
 ### Fixed
