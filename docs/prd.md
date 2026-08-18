@@ -41,6 +41,8 @@
 | **FR-08** | Multi-packet burst sending (`publish_batch`) and polling (`poll_batch`) | High | Implemented |
 | **FR-09** | MQTT over QUIC / HTTP/3 transport interface (`MqttQuicTransport` & `QuicMqttClient`) | High | Implemented |
 | **FR-10** | Real-time zero-overhead telemetry datagrams | High | Implemented |
+| **FR-11** | Zero-RAM chunked stream publishing (`begin_stream_publish` & `MqttStreamWriter`) | High | Implemented |
+| **FR-12** | Real-time streaming mode configuration (`StreamMode::RealTimeStreaming`) | High | Implemented |
 
 ### 3.2. Non-Functional Requirements
 

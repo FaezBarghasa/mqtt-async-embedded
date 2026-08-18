@@ -37,6 +37,11 @@ pub trait MqttTransport {
 - Full support for **Last Will and Testament (LWT)**, **`UNSUBSCRIBE` / `UNSUBACK`**, and broker QoS 2 handshakes (`PUBREC`, `PUBREL`, `PUBCOMP`).
 - Modular logging with zero-overhead `defmt` support for microcontrollers or standard `log`/`env_logger` on desktop host environments.
 
+### 2.5. Real-Time Streaming & Zero-RAM Chunking
+- **Chunked Stream Ingestion (`MqttStreamWriter`)**: Microcontrollers with 512B - 2KB static RAM can stream large or continuous payloads (PCM audio, camera JPEG stills, sensor waveforms) directly across the transport chunk-by-chunk without full in-memory buffering.
+- **`StreamMode::RealTimeStreaming`**: Low-latency, fast-path zero-copy dispatch for high-rate continuous telemetry.
+- **Dedicated QUIC Telemetry Streams**: Independent unidirectional streams multiplexed over QUIC with zero Head-of-Line blocking.
+
 ---
 
 ## 3. Memory & Lifetime Safety Model

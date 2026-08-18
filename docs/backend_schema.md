@@ -124,6 +124,22 @@ pub struct UnsubAck<'a> {
 }
 ```
 
+### 2.8. Stream Mode & Streaming Writer Schemas (`src/client.rs`)
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum StreamMode {
+    #[default]
+    Standard,
+    RealTimeStreaming,
+}
+
+pub struct MqttStreamWriter<'c, T: MqttTransport> {
+    transport: &'c mut T,
+    remaining_bytes: usize,
+    total_bytes: usize,
+}
+```
+
 ---
 
 ## 3. Variable Byte Integer Encoding (MQTT Length Schema)
