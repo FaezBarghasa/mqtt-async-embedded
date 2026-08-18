@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Last Will and Testament (LWT) support in `MqttOptions` (`with_will`) and `Connect` packet encoding/decoding.
 - `UNSUBSCRIBE` and `UNSUBACK` packet structures, wire codec, and `MqttClient::unsubscribe()` API.
 - Support decoding `PUBREC`, `PUBREL`, and `PUBCOMP` packets.
-- License files (`LICENSE-MIT` and `LICENSE-APACHE`).
+- License file (`LICENSE` - GNU General Public License v3.0 or later).
 - Automated GitHub Actions CI workflow covering `no_std`, `thumbv7em-none-eabihf`, testing, and clippy.
 
 ### Fixed
