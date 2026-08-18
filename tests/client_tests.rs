@@ -136,10 +136,7 @@ async fn test_client_publish_qos0_and_qos1() {
     let res = client
         .publish("telemetry/q2", b"data", QoS::ExactlyOnce)
         .await;
-    assert_eq!(
-        res,
-        Err(MqttError::Protocol(ProtocolError::UnsupportedQoS))
-    );
+    assert_eq!(res, Err(MqttError::Protocol(ProtocolError::UnsupportedQoS)));
 }
 
 #[tokio::test]
@@ -255,7 +252,9 @@ async fn test_client_poll_batch_multi_event() {
     cursor += l1;
     let l2 = p2.encode(&mut stream[cursor..], MqttVersion::V3).unwrap();
     cursor += l2;
-    let ping_len = packet::PingResp.encode(&mut stream[cursor..], MqttVersion::V3).unwrap();
+    let ping_len = packet::PingResp
+        .encode(&mut stream[cursor..], MqttVersion::V3)
+        .unwrap();
     cursor += ping_len;
 
     transport.feed_incoming(&stream[..cursor]);
@@ -293,8 +292,6 @@ async fn test_client_disconnect_lifecycle() {
     assert_eq!(sent_disc[0] >> 4, 14); // DISCONNECT
 
     // Calling publish when disconnected should fail immediately
-    let res = client
-        .publish("test", b"data", QoS::AtMostOnce)
-        .await;
+    let res = client.publish("test", b"data", QoS::AtMostOnce).await;
     assert_eq!(res, Err(MqttError::NotConnected));
 }
