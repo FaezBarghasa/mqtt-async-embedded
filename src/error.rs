@@ -130,6 +130,8 @@ pub enum ProtocolError {
     TooManyProperties,
     /// Topic filter is invalid or exceeds buffer limits.
     InvalidTopic,
+    /// QoS level is not supported (e.g. QoS 2 ExactlyOnce).
+    UnsupportedQoS,
 }
 
 

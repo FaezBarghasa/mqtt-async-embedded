@@ -32,7 +32,7 @@ flowchart TD
 The client inner state is managed by `ConnectionState` within `src/client.rs`:
 
 ```mermaid
-stateDiagram-v8
+stateDiagram-v2
     [*] --> Disconnected
     Disconnected --> Connecting: connect() called
     Connecting --> Connected: CONNACK received (ReasonCode = 0)

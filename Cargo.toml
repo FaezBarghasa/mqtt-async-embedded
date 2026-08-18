@@ -1,6 +1,6 @@
 [package]
 name = "mqtt-async-embedded"
-version = "1.1.0"
+version = "1.2.0"
 edition = "2024"
 authors = ["Faez Barghasa <faez.barghasa.org@gmail.com>"]
 description = "High-performance, async, no_std-compatible MQTT client for embedded systems with multi-packet batching and QUIC/H3 support."

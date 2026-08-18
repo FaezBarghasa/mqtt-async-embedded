@@ -5,6 +5,7 @@
 use crate::error::{ConnectReasonCode, MqttError, ProtocolError};
 use crate::packet::{
     self, Connect, Disconnect, EncodePacket, MqttPacket, PingReq, PubAck, Publish, QoS, Subscribe,
+    SubAck, UnsubAck, Unsubscribe, Will,
 };
 use crate::transport::{self, MqttQuicTransport, MqttTransport};
 use crate::util::{self, RawPacketFrameIter};
@@ -30,6 +31,7 @@ pub struct MqttOptions<'a> {
     pub clean_session: bool,
     pub username: Option<&'a str>,
     pub password: Option<&'a str>,
+    pub will: Option<Will<'a>>,
 }
 
 impl<'a> MqttOptions<'a> {
@@ -43,6 +45,7 @@ impl<'a> MqttOptions<'a> {
             clean_session: true,
             username: None,
             password: None,
+            will: None,
         }
     }
 
@@ -64,6 +67,11 @@ impl<'a> MqttOptions<'a> {
 
     pub fn with_clean_session(mut self, clean: bool) -> Self {
         self.clean_session = clean;
+        self
+    }
+
+    pub fn with_will(mut self, topic: &'a str, payload: &'a [u8], qos: QoS, retain: bool) -> Self {
+        self.will = Some(Will::new(topic, payload, qos, retain));
         self
     }
 }
@@ -151,6 +159,7 @@ where
         );
         connect_packet.username = self.options.username;
         connect_packet.password = self.options.password;
+        connect_packet.will = self.options.will.clone();
 
         let len = connect_packet
             .encode(&mut self.tx_buffer, self.options.version)
@@ -197,6 +206,10 @@ where
             return Err(MqttError::NotConnected);
         }
 
+        if qos == QoS::ExactlyOnce {
+            return Err(MqttError::Protocol(ProtocolError::UnsupportedQoS));
+        }
+
         let packet_id = if qos != QoS::AtMostOnce {
             Some(self.get_next_packet_id())
         } else {
@@ -231,6 +244,10 @@ where
         let mut sent_count = 0;
 
         for msg in messages {
+            if msg.qos == QoS::ExactlyOnce {
+                return Err(MqttError::Protocol(ProtocolError::UnsupportedQoS));
+            }
+
             let packet_id = if msg.qos != QoS::AtMostOnce {
                 Some(self.get_next_packet_id())
             } else {
@@ -298,6 +315,33 @@ where
         Ok(pid)
     }
 
+    /// Unsubscribes from one or more topic filters.
+    pub async fn unsubscribe(
+        &mut self,
+        topics: &[&str],
+    ) -> Result<u16, MqttError<T::Error>>
+    where
+        T::Error: transport::TransportError,
+    {
+        if self.state != ConnectionState::Connected {
+            return Err(MqttError::NotConnected);
+        }
+
+        let pid = self.get_next_packet_id();
+        let mut unsub_packet = Unsubscribe::new(pid);
+        for topic in topics {
+            unsub_packet.add_topic(topic).map_err(MqttError::cast_transport_error)?;
+        }
+
+        let len = unsub_packet
+            .encode(&mut self.tx_buffer, self.options.version)
+            .map_err(MqttError::cast_transport_error)?;
+
+        self.transport.send(&self.tx_buffer[..len]).await?;
+        self.last_tx_time = Instant::now();
+        Ok(pid)
+    }
+
     /// Sends a graceful DISCONNECT packet and marks client as disconnected.
     pub async fn disconnect(&mut self) -> Result<(), MqttError<T::Error>>
     where
@@ -345,6 +389,7 @@ where
                     }
                     MqttPacket::PubAck(ack) => return Ok(Some(MqttEvent::PubAck(ack))),
                     MqttPacket::SubAck(suback) => return Ok(Some(MqttEvent::SubAck(suback))),
+                    MqttPacket::UnsubAck(unsuback) => return Ok(Some(MqttEvent::UnsubAck(unsuback))),
                     MqttPacket::PingResp => return Ok(Some(MqttEvent::PingResp)),
                     MqttPacket::Disconnect(disc) => {
                         self.state = ConnectionState::Disconnected;
@@ -399,6 +444,9 @@ where
                             MqttPacket::SubAck(suback) => {
                                 let _ = events.push(MqttEvent::SubAck(suback));
                             }
+                            MqttPacket::UnsubAck(unsuback) => {
+                                let _ = events.push(MqttEvent::UnsubAck(unsuback));
+                            }
                             MqttPacket::PingResp => {
                                 let _ = events.push(MqttEvent::PingResp);
                             }
@@ -431,6 +479,7 @@ pub enum MqttEvent<'p> {
     Publish(Publish<'p>),
     PubAck(PubAck<'p>),
     SubAck(packet::SubAck<'p>),
+    UnsubAck(packet::UnsubAck<'p>),
     PingResp,
     Disconnect(Disconnect<'p>),
 }

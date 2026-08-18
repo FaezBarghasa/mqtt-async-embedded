@@ -213,9 +213,15 @@ pub fn read_properties<'a>(
             }
             // User Property (pair of UTF-8 strings)
             0x26 => {
-                let key_len = u16::from_be_bytes([buf[data_start], buf[data_start + 1]]) as usize;
+                let key_len = u16::from_be_bytes([
+                    *buf.get(data_start).ok_or(MqttError::Protocol(ProtocolError::MalformedPacket))?,
+                    *buf.get(data_start + 1).ok_or(MqttError::Protocol(ProtocolError::MalformedPacket))?,
+                ]) as usize;
                 let val_start = data_start + 2 + key_len;
-                let val_len = u16::from_be_bytes([buf[val_start], buf[val_start + 1]]) as usize;
+                let val_len = u16::from_be_bytes([
+                    *buf.get(val_start).ok_or(MqttError::Protocol(ProtocolError::MalformedPacket))?,
+                    *buf.get(val_start + 1).ok_or(MqttError::Protocol(ProtocolError::MalformedPacket))?,
+                ]) as usize;
                 2 + key_len + 2 + val_len
             }
             // Variable Byte Integer properties

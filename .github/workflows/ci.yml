@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Check & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: thumbv7em-none-eabihf
+
+      - name: Format Check
+        run: cargo fmt --all -- --check
+
+      - name: Build (no_std sanity)
+        run: cargo build --no-default-features
+
+      - name: Build for Cortex-M (embedded target)
+        run: cargo build --target thumbv7em-none-eabihf --no-default-features
+
+      - name: Test (std features)
+        run: cargo test --features std
+
+      - name: Clippy Check
+        run: cargo clippy --all-features -- -D warnings

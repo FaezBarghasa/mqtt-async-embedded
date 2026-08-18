@@ -53,8 +53,13 @@ pub enum MqttPacket<'a> {
     ConnAck(ConnAck<'a>),
     Publish(Publish<'a>),
     PubAck(PubAck<'a>),
+    PubRec { packet_id: u16, reason_code: u8 },
+    PubRel { packet_id: u16, reason_code: u8 },
+    PubComp { packet_id: u16, reason_code: u8 },
     Subscribe(Subscribe<'a>),
     SubAck(SubAck<'a>),
+    Unsubscribe(Unsubscribe<'a>),
+    UnsubAck(UnsubAck<'a>),
     PingReq,
     PingResp,
     Disconnect(Disconnect<'a>),
@@ -78,8 +83,46 @@ where
         2 => MqttPacket::ConnAck(ConnAck::decode(buf, version).map_err(MqttError::cast_transport_error)?),
         3 => MqttPacket::Publish(Publish::decode(buf, version).map_err(MqttError::cast_transport_error)?),
         4 => MqttPacket::PubAck(PubAck::decode(buf, version).map_err(MqttError::cast_transport_error)?),
+        5 => {
+            // PUBREC
+            let mut cursor = 1;
+            let _remaining_len = util::read_variable_byte_integer(&mut cursor, buf).map_err(MqttError::cast_transport_error)?;
+            if cursor + 2 > buf.len() {
+                return Err(MqttError::Protocol(ProtocolError::IncompletePacket));
+            }
+            let packet_id = u16::from_be_bytes([buf[cursor], buf[cursor + 1]]);
+            cursor += 2;
+            let reason_code = if cursor < buf.len() { buf[cursor] } else { 0 };
+            MqttPacket::PubRec { packet_id, reason_code }
+        }
+        6 => {
+            // PUBREL
+            let mut cursor = 1;
+            let _remaining_len = util::read_variable_byte_integer(&mut cursor, buf).map_err(MqttError::cast_transport_error)?;
+            if cursor + 2 > buf.len() {
+                return Err(MqttError::Protocol(ProtocolError::IncompletePacket));
+            }
+            let packet_id = u16::from_be_bytes([buf[cursor], buf[cursor + 1]]);
+            cursor += 2;
+            let reason_code = if cursor < buf.len() { buf[cursor] } else { 0 };
+            MqttPacket::PubRel { packet_id, reason_code }
+        }
+        7 => {
+            // PUBCOMP
+            let mut cursor = 1;
+            let _remaining_len = util::read_variable_byte_integer(&mut cursor, buf).map_err(MqttError::cast_transport_error)?;
+            if cursor + 2 > buf.len() {
+                return Err(MqttError::Protocol(ProtocolError::IncompletePacket));
+            }
+            let packet_id = u16::from_be_bytes([buf[cursor], buf[cursor + 1]]);
+            cursor += 2;
+            let reason_code = if cursor < buf.len() { buf[cursor] } else { 0 };
+            MqttPacket::PubComp { packet_id, reason_code }
+        }
         8 => MqttPacket::Subscribe(Subscribe::decode(buf, version).map_err(MqttError::cast_transport_error)?),
         9 => MqttPacket::SubAck(SubAck::decode(buf, version).map_err(MqttError::cast_transport_error)?),
+        10 => MqttPacket::Unsubscribe(Unsubscribe::decode(buf, version).map_err(MqttError::cast_transport_error)?),
+        11 => MqttPacket::UnsubAck(UnsubAck::decode(buf, version).map_err(MqttError::cast_transport_error)?),
         12 => MqttPacket::PingReq,
         13 => MqttPacket::PingResp,
         14 => MqttPacket::Disconnect(Disconnect::decode(buf, version).map_err(MqttError::cast_transport_error)?),
@@ -95,6 +138,28 @@ pub struct Property<'a> {
     pub data: &'a [u8],
 }
 
+// --- Last Will and Testament Config ---
+#[derive(Debug, Clone)]
+pub struct Will<'a> {
+    pub topic: &'a str,
+    pub payload: &'a [u8],
+    pub qos: QoS,
+    pub retain: bool,
+    pub properties: Vec<Property<'a>, 8>,
+}
+
+impl<'a> Will<'a> {
+    pub fn new(topic: &'a str, payload: &'a [u8], qos: QoS, retain: bool) -> Self {
+        Self {
+            topic,
+            payload,
+            qos,
+            retain,
+            properties: Vec::new(),
+        }
+    }
+}
+
 // --- CONNECT Packet ---
 #[derive(Debug, Clone)]
 pub struct Connect<'a> {
@@ -103,6 +168,7 @@ pub struct Connect<'a> {
     pub client_id: &'a str,
     pub username: Option<&'a str>,
     pub password: Option<&'a str>,
+    pub will: Option<Will<'a>>,
     pub properties: Vec<Property<'a>, 8>,
 }
 
@@ -114,6 +180,7 @@ impl<'a> Connect<'a> {
             clean_session,
             username: None,
             password: None,
+            will: None,
             properties: Vec::new(),
         }
     }
@@ -122,46 +189,64 @@ impl<'a> Connect<'a> {
 impl<'a> EncodePacket for Connect<'a> {
     fn encode(&self, buf: &mut [u8], version: MqttVersion) -> Result<usize, MqttError<transport::ErrorPlaceHolder>> {
         let mut cursor = 0;
-        buf[cursor] = 0x10;
+        *buf.get_mut(cursor).ok_or(MqttError::BufferTooSmall)? = 0x10;
         cursor += 1;
         let remaining_len_pos = cursor;
         cursor += 4;
         let content_start = cursor;
         let protocol_name = if version == MqttVersion::V5 { "MQTT" } else { "MQIsdp" };
-        cursor += write_utf8_string(&mut buf[cursor..], protocol_name)?;
-        buf[cursor] = if version == MqttVersion::V5 { 5 } else { 3 };
+        cursor += write_utf8_string(buf.get_mut(cursor..).ok_or(MqttError::BufferTooSmall)?, protocol_name)?;
+        *buf.get_mut(cursor).ok_or(MqttError::BufferTooSmall)? = if version == MqttVersion::V5 { 5 } else { 3 };
         cursor += 1;
 
         let mut flags = 0;
         if self.clean_session {
             flags |= 0x02;
         }
-        if self.username.is_some() {
-            flags |= 0x80;
+        if let Some(will) = &self.will {
+            flags |= 0x04; // Will Flag
+            flags |= (will.qos as u8) << 3; // Will QoS
+            if will.retain {
+                flags |= 0x20; // Will Retain
+            }
         }
         if self.password.is_some() {
             flags |= 0x40;
         }
-        buf[cursor] = flags;
+        if self.username.is_some() {
+            flags |= 0x80;
+        }
+        *buf.get_mut(cursor).ok_or(MqttError::BufferTooSmall)? = flags;
         cursor += 1;
 
-        buf[cursor..cursor + 2].copy_from_slice(&self.keep_alive.to_be_bytes());
+        buf.get_mut(cursor..cursor + 2)
+            .ok_or(MqttError::BufferTooSmall)?
+            .copy_from_slice(&self.keep_alive.to_be_bytes());
         cursor += 2;
 
         if version == MqttVersion::V5 {
             util::write_properties(&mut cursor, buf, &self.properties)?;
         }
 
-        cursor += write_utf8_string(&mut buf[cursor..], self.client_id)?;
+        cursor += write_utf8_string(buf.get_mut(cursor..).ok_or(MqttError::BufferTooSmall)?, self.client_id)?;
+
+        if let Some(will) = &self.will {
+            if version == MqttVersion::V5 {
+                util::write_properties(&mut cursor, buf, &will.properties)?;
+            }
+            cursor += write_utf8_string(buf.get_mut(cursor..).ok_or(MqttError::BufferTooSmall)?, will.topic)?;
+            cursor += util::write_binary_data(buf.get_mut(cursor..).ok_or(MqttError::BufferTooSmall)?, will.payload)?;
+        }
+
         if let Some(user) = self.username {
-            cursor += write_utf8_string(&mut buf[cursor..], user)?;
+            cursor += write_utf8_string(buf.get_mut(cursor..).ok_or(MqttError::BufferTooSmall)?, user)?;
         }
         if let Some(pass) = self.password {
-            cursor += write_utf8_string(&mut buf[cursor..], pass)?;
+            cursor += write_utf8_string(buf.get_mut(cursor..).ok_or(MqttError::BufferTooSmall)?, pass)?;
         }
 
         let remaining_len = cursor - content_start;
-        let len_bytes = util::write_variable_byte_integer_len(&mut buf[remaining_len_pos..], remaining_len)?;
+        let len_bytes = util::write_variable_byte_integer_len(buf.get_mut(remaining_len_pos..).ok_or(MqttError::BufferTooSmall)?, remaining_len)?;
         let header_len = 1 + len_bytes;
         buf.copy_within(content_start..cursor, header_len);
         Ok(header_len + remaining_len)
@@ -173,14 +258,20 @@ impl<'a> DecodePacket<'a> for Connect<'a> {
         let mut cursor = 1;
         let _remaining_len = util::read_variable_byte_integer(&mut cursor, buf)?;
         let _proto_name = read_utf8_string(&mut cursor, buf)?;
-        let _proto_level = buf[cursor];
+        let _proto_level = *buf.get(cursor).ok_or(MqttError::Protocol(ProtocolError::IncompletePacket))?;
         cursor += 1;
-        let connect_flags = buf[cursor];
+        let connect_flags = *buf.get(cursor).ok_or(MqttError::Protocol(ProtocolError::IncompletePacket))?;
         cursor += 1;
         let clean_session = (connect_flags & 0x02) != 0;
+        let will_flag = (connect_flags & 0x04) != 0;
+        let will_qos = QoS::from((connect_flags >> 3) & 0x03);
+        let will_retain = (connect_flags & 0x20) != 0;
         let has_username = (connect_flags & 0x80) != 0;
         let has_password = (connect_flags & 0x40) != 0;
 
+        if cursor + 2 > buf.len() {
+            return Err(MqttError::Protocol(ProtocolError::IncompletePacket));
+        }
         let keep_alive = u16::from_be_bytes([buf[cursor], buf[cursor + 1]]);
         cursor += 2;
 
@@ -191,6 +282,26 @@ impl<'a> DecodePacket<'a> for Connect<'a> {
         };
 
         let client_id = read_utf8_string(&mut cursor, buf)?;
+
+        let will = if will_flag {
+            let will_properties = if version == MqttVersion::V5 {
+                util::read_properties(&mut cursor, buf)?
+            } else {
+                Vec::new()
+            };
+            let topic = read_utf8_string(&mut cursor, buf)?;
+            let payload = util::read_binary_data(&mut cursor, buf)?;
+            Some(Will {
+                topic,
+                payload,
+                qos: will_qos,
+                retain: will_retain,
+                properties: will_properties,
+            })
+        } else {
+            None
+        };
+
         let username = if has_username {
             Some(read_utf8_string(&mut cursor, buf)?)
         } else {
@@ -208,6 +319,7 @@ impl<'a> DecodePacket<'a> for Connect<'a> {
             client_id,
             username,
             password,
+            will,
             properties,
         })
     }
@@ -225,7 +337,7 @@ impl<'a> DecodePacket<'a> for ConnAck<'a> {
     fn decode(buf: &'a [u8], version: MqttVersion) -> Result<Self, MqttError<transport::ErrorPlaceHolder>> {
         let mut cursor = 1;
         let _remaining_len = util::read_variable_byte_integer(&mut cursor, buf)?;
-        if cursor >= buf.len() {
+        if cursor + 2 > buf.len() {
             return Err(MqttError::Protocol(ProtocolError::IncompletePacket));
         }
         let session_present = (buf[cursor] & 0x01) != 0;
@@ -283,14 +395,14 @@ impl<'a> EncodePacket for Publish<'a> {
         }
 
         let mut cursor = 0;
-        buf[cursor] = flags;
+        *buf.get_mut(cursor).ok_or(MqttError::BufferTooSmall)? = flags;
         cursor += 1;
 
         let remaining_len_pos = cursor;
         cursor += 4;
         let content_start = cursor;
 
-        cursor += write_utf8_string(&mut buf[cursor..], self.topic)?;
+        cursor += write_utf8_string(buf.get_mut(cursor..).ok_or(MqttError::BufferTooSmall)?, self.topic)?;
 
         if self.qos != QoS::AtMostOnce {
             let pid = self.packet_id.unwrap_or(1);
@@ -311,7 +423,7 @@ impl<'a> EncodePacket for Publish<'a> {
         cursor = end;
 
         let remaining_len = cursor - content_start;
-        let len_bytes = util::write_variable_byte_integer_len(&mut buf[remaining_len_pos..], remaining_len)?;
+        let len_bytes = util::write_variable_byte_integer_len(buf.get_mut(remaining_len_pos..).ok_or(MqttError::BufferTooSmall)?, remaining_len)?;
         let header_len = 1 + len_bytes;
         buf.copy_within(content_start..cursor, header_len);
         Ok(header_len + remaining_len)
@@ -390,7 +502,7 @@ impl<'a> PubAck<'a> {
 
 impl<'a> EncodePacket for PubAck<'a> {
     fn encode(&self, buf: &mut [u8], version: MqttVersion) -> Result<usize, MqttError<transport::ErrorPlaceHolder>> {
-        buf[0] = 0x40;
+        *buf.get_mut(0).ok_or(MqttError::BufferTooSmall)? = 0x40;
         let mut cursor = 1;
         let remaining_len_pos = cursor;
         cursor += 4;
@@ -408,7 +520,7 @@ impl<'a> EncodePacket for PubAck<'a> {
         }
 
         let remaining_len = cursor - content_start;
-        let len_bytes = util::write_variable_byte_integer_len(&mut buf[remaining_len_pos..], remaining_len)?;
+        let len_bytes = util::write_variable_byte_integer_len(buf.get_mut(remaining_len_pos..).ok_or(MqttError::BufferTooSmall)?, remaining_len)?;
         let header_len = 1 + len_bytes;
         buf.copy_within(content_start..cursor, header_len);
         Ok(header_len + remaining_len)
@@ -429,7 +541,7 @@ impl<'a> DecodePacket<'a> for PubAck<'a> {
         let mut reason_code = 0;
         let mut properties = Vec::new();
         if version == MqttVersion::V5 && cursor < content_end {
-            reason_code = buf[cursor];
+            reason_code = *buf.get(cursor).ok_or(MqttError::Protocol(ProtocolError::IncompletePacket))?;
             cursor += 1;
             if cursor < content_end {
                 properties = util::read_properties(&mut cursor, buf)?;
@@ -470,7 +582,7 @@ impl<'a> Subscribe<'a> {
 
 impl<'a> EncodePacket for Subscribe<'a> {
     fn encode(&self, buf: &mut [u8], version: MqttVersion) -> Result<usize, MqttError<transport::ErrorPlaceHolder>> {
-        buf[0] = 0x82; // 0x82 = SUBSCRIBE with QoS 1 in fixed header
+        *buf.get_mut(0).ok_or(MqttError::BufferTooSmall)? = 0x82; // 0x82 = SUBSCRIBE with QoS 1 in fixed header
         let mut cursor = 1;
         let remaining_len_pos = cursor;
         cursor += 4;
@@ -486,13 +598,13 @@ impl<'a> EncodePacket for Subscribe<'a> {
         }
 
         for (topic, qos) in &self.topics {
-            cursor += write_utf8_string(&mut buf[cursor..], topic)?;
+            cursor += write_utf8_string(buf.get_mut(cursor..).ok_or(MqttError::BufferTooSmall)?, topic)?;
             *buf.get_mut(cursor).ok_or(MqttError::BufferTooSmall)? = *qos as u8;
             cursor += 1;
         }
 
         let remaining_len = cursor - content_start;
-        let len_bytes = util::write_variable_byte_integer_len(&mut buf[remaining_len_pos..], remaining_len)?;
+        let len_bytes = util::write_variable_byte_integer_len(buf.get_mut(remaining_len_pos..).ok_or(MqttError::BufferTooSmall)?, remaining_len)?;
         let header_len = 1 + len_bytes;
         buf.copy_within(content_start..cursor, header_len);
         Ok(header_len + remaining_len)
@@ -519,7 +631,8 @@ impl<'a> DecodePacket<'a> for Subscribe<'a> {
         let mut topics = Vec::new();
         while cursor < content_end {
             let topic = read_utf8_string(&mut cursor, buf)?;
-            let qos = QoS::from(buf[cursor]);
+            let qos_byte = *buf.get(cursor).ok_or(MqttError::Protocol(ProtocolError::IncompletePacket))?;
+            let qos = QoS::from(qos_byte);
             cursor += 1;
             topics.push((topic, qos)).map_err(|_| MqttError::BatchCapacityExceeded)?;
         }
@@ -571,6 +684,129 @@ impl<'a> DecodePacket<'a> for SubAck<'a> {
     }
 }
 
+// --- UNSUBSCRIBE Packet ---
+#[derive(Debug, Clone)]
+pub struct Unsubscribe<'a> {
+    pub packet_id: u16,
+    pub topics: Vec<&'a str, 8>,
+    pub properties: Vec<Property<'a>, 8>,
+}
+
+impl<'a> Unsubscribe<'a> {
+    pub fn new(packet_id: u16) -> Self {
+        Self {
+            packet_id,
+            topics: Vec::new(),
+            properties: Vec::new(),
+        }
+    }
+
+    pub fn add_topic(&mut self, topic: &'a str) -> Result<(), MqttError<transport::ErrorPlaceHolder>> {
+        self.topics
+            .push(topic)
+            .map_err(|_| MqttError::BatchCapacityExceeded)
+    }
+}
+
+impl<'a> EncodePacket for Unsubscribe<'a> {
+    fn encode(&self, buf: &mut [u8], version: MqttVersion) -> Result<usize, MqttError<transport::ErrorPlaceHolder>> {
+        *buf.get_mut(0).ok_or(MqttError::BufferTooSmall)? = 0xA2; // 0xA2 = UNSUBSCRIBE with QoS 1 in fixed header
+        let mut cursor = 1;
+        let remaining_len_pos = cursor;
+        cursor += 4;
+        let content_start = cursor;
+
+        buf.get_mut(cursor..cursor + 2)
+            .ok_or(MqttError::BufferTooSmall)?
+            .copy_from_slice(&self.packet_id.to_be_bytes());
+        cursor += 2;
+
+        if version == MqttVersion::V5 {
+            util::write_properties(&mut cursor, buf, &self.properties)?;
+        }
+
+        for topic in &self.topics {
+            cursor += write_utf8_string(buf.get_mut(cursor..).ok_or(MqttError::BufferTooSmall)?, topic)?;
+        }
+
+        let remaining_len = cursor - content_start;
+        let len_bytes = util::write_variable_byte_integer_len(buf.get_mut(remaining_len_pos..).ok_or(MqttError::BufferTooSmall)?, remaining_len)?;
+        let header_len = 1 + len_bytes;
+        buf.copy_within(content_start..cursor, header_len);
+        Ok(header_len + remaining_len)
+    }
+}
+
+impl<'a> DecodePacket<'a> for Unsubscribe<'a> {
+    fn decode(buf: &'a [u8], version: MqttVersion) -> Result<Self, MqttError<transport::ErrorPlaceHolder>> {
+        let mut cursor = 1;
+        let remaining_len = util::read_variable_byte_integer(&mut cursor, buf)?;
+        let content_end = cursor + remaining_len;
+        if cursor + 2 > buf.len() {
+            return Err(MqttError::Protocol(ProtocolError::IncompletePacket));
+        }
+        let packet_id = u16::from_be_bytes([buf[cursor], buf[cursor + 1]]);
+        cursor += 2;
+
+        let properties = if version == MqttVersion::V5 && cursor < content_end {
+            util::read_properties(&mut cursor, buf)?
+        } else {
+            Vec::new()
+        };
+
+        let mut topics = Vec::new();
+        while cursor < content_end {
+            let topic = read_utf8_string(&mut cursor, buf)?;
+            topics.push(topic).map_err(|_| MqttError::BatchCapacityExceeded)?;
+        }
+
+        Ok(Unsubscribe {
+            packet_id,
+            topics,
+            properties,
+        })
+    }
+}
+
+// --- UNSUBACK Packet ---
+#[derive(Debug, Clone)]
+pub struct UnsubAck<'a> {
+    pub packet_id: u16,
+    pub reason_codes: Vec<u8, 8>,
+    pub properties: Vec<Property<'a>, 8>,
+}
+
+impl<'a> DecodePacket<'a> for UnsubAck<'a> {
+    fn decode(buf: &'a [u8], version: MqttVersion) -> Result<Self, MqttError<transport::ErrorPlaceHolder>> {
+        let mut cursor = 1;
+        let remaining_len = util::read_variable_byte_integer(&mut cursor, buf)?;
+        let content_end = cursor + remaining_len;
+        if cursor + 2 > buf.len() {
+            return Err(MqttError::Protocol(ProtocolError::IncompletePacket));
+        }
+        let packet_id = u16::from_be_bytes([buf[cursor], buf[cursor + 1]]);
+        cursor += 2;
+
+        let properties = if version == MqttVersion::V5 && cursor < content_end {
+            util::read_properties(&mut cursor, buf)?
+        } else {
+            Vec::new()
+        };
+
+        let mut reason_codes = Vec::new();
+        while cursor < content_end {
+            reason_codes.push(buf[cursor]).map_err(|_| MqttError::BatchCapacityExceeded)?;
+            cursor += 1;
+        }
+
+        Ok(UnsubAck {
+            packet_id,
+            reason_codes,
+            properties,
+        })
+    }
+}
+
 // --- PINGREQ Packet ---
 #[derive(Debug, Clone, Copy)]
 pub struct PingReq;
@@ -580,8 +816,8 @@ impl EncodePacket for PingReq {
         if buf.len() < 2 {
             return Err(MqttError::BufferTooSmall);
         }
-        buf[0] = 0xC0;
-        buf[1] = 0x00;
+        *buf.get_mut(0).ok_or(MqttError::BufferTooSmall)? = 0xC0;
+        *buf.get_mut(1).ok_or(MqttError::BufferTooSmall)? = 0x00;
         Ok(2)
     }
 }
@@ -622,7 +858,7 @@ impl<'a> DecodePacket<'a> for Disconnect<'a> {
             let remaining_len = util::read_variable_byte_integer(&mut cursor, buf)?;
             let content_end = cursor + remaining_len;
             if version == MqttVersion::V5 && cursor < content_end {
-                reason_code = buf[cursor];
+                reason_code = *buf.get(cursor).ok_or(MqttError::Protocol(ProtocolError::IncompletePacket))?;
                 cursor += 1;
                 if cursor < content_end {
                     properties = util::read_properties(&mut cursor, buf)?;
@@ -639,7 +875,7 @@ impl<'a> DecodePacket<'a> for Disconnect<'a> {
 
 impl<'a> EncodePacket for Disconnect<'a> {
     fn encode(&self, buf: &mut [u8], version: MqttVersion) -> Result<usize, MqttError<transport::ErrorPlaceHolder>> {
-        buf[0] = 0xE0;
+        *buf.get_mut(0).ok_or(MqttError::BufferTooSmall)? = 0xE0;
         let mut cursor = 1;
         let remaining_len_pos = cursor;
         cursor += 4;
@@ -652,9 +888,10 @@ impl<'a> EncodePacket for Disconnect<'a> {
         }
 
         let remaining_len = cursor - content_start;
-        let len_bytes = util::write_variable_byte_integer_len(&mut buf[remaining_len_pos..], remaining_len)?;
+        let len_bytes = util::write_variable_byte_integer_len(buf.get_mut(remaining_len_pos..).ok_or(MqttError::BufferTooSmall)?, remaining_len)?;
         let header_len = 1 + len_bytes;
         buf.copy_within(content_start..cursor, header_len);
         Ok(header_len + remaining_len)
     }
 }
+
