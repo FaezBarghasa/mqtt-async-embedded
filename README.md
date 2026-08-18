@@ -1,85 +1,98 @@
-# Async Embedded MQTT Client
+# High-Performance Async Embedded MQTT Client
 
-An `async`, `no_std`-compatible MQTT client library in Rust, designed for embedded systems using the [Embassy](https://embassy.dev/) async ecosystem and `embedded-hal` 1.0.0 traits.
+An `async`, `no_std`-compatible MQTT client library in Rust (2024 edition), designed for embedded microcontrollers and edge gateways with **zero heap allocations**, **multi-packet burst batching**, and **MQTT over QUIC / HTTP/3** support.
+
+---
 
 ## Core Features
 
-- **Asynchronous:** Built on `async/await` and designed for the Embassy ecosystem.
-- **`no_std` by default:** Suitable for bare-metal and resource-constrained devices.
-- **Hardware Agnostic:** Uses `embedded-hal-async` traits to support various communication transports (TCP, UART, SPI, etc.).
-- **Memory Efficient:** Leverages `heapless` to avoid dynamic memory allocation.
-- **MQTT v3.1.1 and v5 Support:** Protocol version can be selected via feature flags.
-- **QoS 0 & 1:** Support for "at most once" and "at least once" message delivery.
+- **`no_std` & `no_alloc` by Default**: Zero dynamic heap allocations across all communication cycles using `heapless` and compile-time const generics.
+- **High-Throughput Multi-Packet Burst**:
+  - `publish_batch(&[PublishMessage])`: Packs multiple telemetry messages into a single frame burst to minimize socket/hardware write overhead.
+  - `poll_batch()`: Parses and yields all available incoming events in a single receive buffer without drops.
+- **MQTT over QUIC / HTTP/3 (`MqttQuicTransport`)**:
+  - Eliminates Head-of-Line (HoL) blocking via stream multiplexing.
+  - Ultra-fast real-time sensor streaming via unreliable QUIC datagrams (`QuicMqttClient`).
+  - Native 0-RTT connection resumption.
+- **Hardware & Transport Agnostic**: Decoupled via `MqttTransport` (TCP, UART modems, SPI) and `MqttQuicTransport` (cellular QUIC modems, `quinn`).
+- **Fast-Path Vectored I/O**: `send_vectored` allows zero-copy header + payload transmission.
+- **MQTT v3.1.1 & v5.0**: Dynamic selection and full wire codec support for extended properties, reason codes, and user properties.
+- **QoS 0 & 1 with Pipelined Auto-ACKs**: Automatic `PUBACK` generation during polling cycles.
+
+---
 
 ## Getting Started
 
-To use this library, you need a transport that implements the `MqttTransport` trait. This trait is an abstraction over the underlying communication channel (e.g., a TCP socket).
-
-Here is a conceptual example of how to use the client with an `embassy-net` TCP socket:
+### Standard TCP / UART Client
 
 ```rust,no_run
-use mqtt_async_embedded::{MqttClient, MqttOptions, QoS};
-use embassy_net::tcp::TcpSocket;
+use mqtt_async_embedded::{MqttClient, MqttOptions, QoS, PublishMessage};
 use embassy_time::Duration;
 
-// Assume `socket` is an already connected `TcpSocket`
-async fn run_mqtt(mut socket: TcpSocket<'_>) {
-    let options = MqttOptions::new("my-embedded-device")
-        .set_keep_alive(Duration::from_secs(30));
+async fn run_mqtt<T: mqtt_async_embedded::MqttTransport>(transport: T) {
+    let options = MqttOptions::new("my-embedded-device", "192.168.1.100", 1883)
+        .with_keep_alive(Duration::from_secs(30));
 
-    let mut client: MqttClient<_, 1024, 1024> = MqttClient::new(socket, options);
+    // Const generics: MAX_TOPICS = 8, BUF_SIZE = 2048 bytes
+    let mut client: MqttClient<_, 8, 2048> = MqttClient::new(transport, options);
 
-    // Connect to the broker
-    if let Err(e) = client.connect().await {
-        // Handle connection error
-        return;
+    // Connect to broker
+    client.connect().await.unwrap();
+
+    // Subscribe to topic filter
+    client.subscribe(&[("sensors/+", QoS::AtLeastOnce)]).await.unwrap();
+
+    // Single message publish
+    client.publish("sensors/temp", b"24.5", QoS::AtLeastOnce).await.unwrap();
+
+    // Multi-packet burst publish (highest throughput)
+    let batch = [
+        PublishMessage::new("sensors/temp", b"24.5", QoS::AtMostOnce),
+        PublishMessage::new("sensors/humidity", b"60.2", QoS::AtMostOnce),
+        PublishMessage::new("sensors/pressure", b"1013.25", QoS::AtMostOnce),
+    ];
+    client.publish_batch(&batch).await.unwrap();
+
+    // Poll event loop
+    loop {
+        if let Some(event) = client.poll().await.unwrap() {
+            // Process incoming events
+        }
     }
-
-    // Publish a message
-    client.publish("sensors/temp", b"25.3", QoS::AtLeastOnce, &[]).await.unwrap();
-
-    // Subscribe to a topic
-    client.subscribe("commands", QoS::AtLeastOnce).await.unwrap();
-
-    // Disconnect
-    client.disconnect().await.unwrap();
 }
 ```
 
-## Project Structure
-
-The library is organized into a few key modules:
-
-- `src/client.rs`: Contains the main `MqttClient` and its async state machine.
-- `src/packet.rs`: Handles the encoding and decoding of MQTT control packets.
-- `src/transport.rs`: Defines the `MqttTransport` trait for hardware abstraction.
-- `src/error.rs`: Provides unified error types for the client.
+---
 
 ## Feature Flags
 
-The following feature flags are available:
+| Feature | Description |
+| :--- | :--- |
+| `default` | Standard `no_std` zero-allocation build. |
+| `std` | Standard library support for desktop host testing and mocks. |
+| `v5` | Full MQTT v5.0 extended properties and user properties support. |
+| `defmt` | Zero-overhead logging via the `defmt` framework for microcontrollers. |
+| `transport-smoltcp` | Direct integration with `embassy-net` TCP sockets. |
+| `transport-quic` | MQTT over QUIC / H3 transport for host and Linux edge devices via `quinn`. |
 
-- `v5`: Enables MQTT v5 support.
-- `std`: Enables `std` library support for running examples and tests on a host machine.
-- `defmt`: Enables logging via the `defmt` framework.
-- `transport-smoltcp`: Enables integration with `embassy-net` for a full TCP/IP stack.
-- `nom`: Enables the `nom` parser for decoding MQTT packets.
+---
 
 ## Running Examples
 
-The crate includes several examples in the `examples/` directory.
+### 1. Multi-Packet Burst Batching
+Demonstrates packing 5+ sensor readings into a single hardware frame:
+```bash
+cargo run --example multipacket_burst --features std
+```
 
-### Desktop Mock
-
-This example uses `std::net::TcpStream` to connect to a local MQTT broker on your host machine.
-
-**Prerequisites:** An MQTT broker (like Mosquitto) running on `localhost:1883`.
-
-**Run command:**
+### 2. Desktop Mock Client
+Connects and performs full pub/sub/disconnect lifecycle over TCP:
 ```bash
 cargo run --example desktop_mock --features std
 ```
 
-### Embedded Examples
-
-The `esp8266_uart.rs` and `smoltcp_ethernet.rs` examples are skeletons that demonstrate how the library would be integrated into a real embedded project. They require a specific HAL and driver setup to be fully functional.
+### 3. MQTT over QUIC Client
+Demonstrates QUIC stream multiplexing and real-time datagram telemetry:
+```bash
+cargo run --example quic_client --features transport-quic
+```

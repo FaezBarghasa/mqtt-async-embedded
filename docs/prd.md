@@ -30,6 +30,9 @@
 | **FR-05** | Support topic subscriptions (`SUBSCRIBE` / `SUBACK`) | High | Implemented |
 | **FR-06** | Automatic heartbeat transmission (`PINGREQ` / `PINGRESP`) during idle polling | High | Implemented |
 | **FR-07** | Hardware-agnostic transport interface (`MqttTransport` trait) | High | Implemented |
+| **FR-08** | Multi-packet burst sending (`publish_batch`) and polling (`poll_batch`) | High | Implemented |
+| **FR-09** | MQTT over QUIC / HTTP/3 transport interface (`MqttQuicTransport` & `QuicMqttClient`) | High | Implemented |
+| **FR-10** | Real-time zero-overhead telemetry datagrams | High | Implemented |
 
 ### 3.2. Non-Functional Requirements
 
@@ -37,9 +40,10 @@
 | :--- | :--- | :--- | :--- |
 | **NFR-01** | **Memory** | Completely `no_std` and `no_alloc` compliant | 0 dynamic allocations on heap |
 | **NFR-02** | **Performance** | Asynchronous non-blocking I/O using native async traits | Compatible with Embassy executor |
-| **NFR-03** | **Footprint** | Minimal RAM usage with static heapless buffers | Configurable array sizes (e.g. 512B - 1KB) |
+| **NFR-03** | **Footprint** | Minimal RAM usage with static heapless buffers | Configurable array sizes (e.g. 512B - 2KB) |
 | **NFR-04** | **Observability**| Support `defmt` logging framework for low-overhead micro-controller logging | Feature flag `defmt` |
 | **NFR-05** | **Reliability** | Strict lifetime management for zero-copy event handling | Compiler-verified borrow semantics |
+| **NFR-06** | **Throughput** | Zero-copy vectored I/O and multi-packet stream parsing | Multi-packet frame batching |
 
 ---
 
@@ -47,11 +51,11 @@
 
 - **Language**: Rust (2024 edition).
 - **Core Dependencies**:
-  - `embedded-hal` / `embedded-hal-async` (v1.0.0)
-  - `embedded-io-async` (v0.6.1)
+  - `embedded-hal` / `embedded-hal-async` (v1.0)
+  - `embedded-io-async` (v0.6)
   - `heapless` (v0.9)
-  - `embassy-time` (v0.5.0)
-- **Optional Dependencies**: `defmt`, `embassy-net`, `nom`, `tokio`.
+  - `embassy-time` (v0.5)
+- **Optional Dependencies**: `defmt`, `embassy-net`, `nom`, `tokio`, `quinn`, `rustls`.
 
 ---
 
@@ -59,10 +63,11 @@
 
 ### Success Criteria
 1. Zero dynamic allocations across all communication cycles.
-2. Low memory footprint fits easily into 16KB RAM microcontrollers.
-3. Clean compilation for both `no_std` embedded targets and `std` host machines.
+2. Multi-packet burst batching significantly reduces transmission latency.
+3. Clean compilation for `no_std` embedded targets, `std` host machines, and QUIC/H3 networks.
 
 ### Future Enhancements
 - QoS 2 ("Exactly Once") message delivery support.
 - Native TLS integration over `embedded-tls`.
 - Automated retry mechanism with exponential backoff on transport failure.
+

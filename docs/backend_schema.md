@@ -45,35 +45,23 @@ pub enum QoS {
 ### 2.2. CONNECT Packet Schema (`Connect<'a>`)
 ```rust
 pub struct Connect<'a> {
-    pub client_id: &'a str,
-    pub keep_alive: u16,
     pub clean_session: bool,
+    pub keep_alive: u16,
+    pub client_id: &'a str,
     pub username: Option<&'a str>,
     pub password: Option<&'a str>,
+    pub properties: Vec<Property<'a>, 8>,
 }
 ```
-**Binary Variable Header Flags**:
-- Bit 1: Clean Session / Clean Start flag
-- Bit 2: Will Flag
-- Bits 3-4: Will QoS
-- Bit 5: Will Retain
-- Bit 6: Password Flag
-- Bit 7: User Name Flag
 
-### 2.3. CONNACK Packet Schema (`ConnAck`)
+### 2.3. CONNACK Packet Schema (`ConnAck<'a>`)
 ```rust
-pub struct ConnAck {
+pub struct ConnAck<'a> {
     pub session_present: bool,
     pub reason_code: u8,
+    pub properties: Vec<Property<'a>, 8>,
 }
 ```
-**Reason Codes (v3.1.1 / v5)**:
-- `0x00`: Connection Accepted
-- `0x01`: Unacceptable Protocol Version
-- `0x02`: Identifier Rejected
-- `0x03`: Server Unavailable
-- `0x04`: Bad User Name or Password
-- `0x05`: Not Authorized
 
 ### 2.4. PUBLISH Packet Schema (`Publish<'a>`)
 ```rust
@@ -84,6 +72,22 @@ pub struct Publish<'a> {
     pub topic: &'a str,
     pub packet_id: Option<u16>,
     pub payload: &'a [u8],
+    pub properties: Vec<Property<'a>, 8>,
+}
+```
+
+### 2.5. SUBSCRIBE & SUBACK Schemas
+```rust
+pub struct Subscribe<'a> {
+    pub packet_id: u16,
+    pub topics: Vec<(&'a str, QoS), 8>,
+    pub properties: Vec<Property<'a>, 8>,
+}
+
+pub struct SubAck<'a> {
+    pub packet_id: u16,
+    pub reason_codes: Vec<u8, 8>,
+    pub properties: Vec<Property<'a>, 8>,
 }
 ```
 
@@ -105,22 +109,28 @@ Remaining Length fields use a variable byte encoding scheme where 7 bits carry p
 ## 4. Error Mapping Schema (`src/error.rs`)
 
 ```rust
-pub enum MqttError<E> {
-    Transport(E),
+pub enum MqttError<T> {
+    Transport(T),
     Protocol(ProtocolError),
-    ConnectionRefused(u8),
+    ConnectionRefused(ConnectReasonCode),
     NotConnected,
     BufferTooSmall,
     Timeout,
+    BatchCapacityExceeded,
+    QuicError(QuicErrorKind),
 }
 ```
 
 ```rust
 pub enum ProtocolError {
-    InvalidHeader,
-    InvalidLength,
-    InvalidString,
+    InvalidPacketType(u8),
     InvalidResponse,
-    UnsupportedVersion,
+    MalformedPacket,
+    IncompletePacket,
+    PayloadTooLarge,
+    InvalidUtf8String,
+    TooManyProperties,
+    InvalidTopic,
 }
 ```
+
