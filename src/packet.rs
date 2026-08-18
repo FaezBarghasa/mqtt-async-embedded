@@ -987,6 +987,21 @@ impl EncodePacket for PingReq {
 #[derive(Debug, Clone, Copy)]
 pub struct PingResp;
 
+impl EncodePacket for PingResp {
+    fn encode(
+        &self,
+        buf: &mut [u8],
+        _version: MqttVersion,
+    ) -> Result<usize, MqttError<transport::ErrorPlaceHolder>> {
+        if buf.len() < 2 {
+            return Err(MqttError::BufferTooSmall);
+        }
+        *buf.get_mut(0).ok_or(MqttError::BufferTooSmall)? = 0xD0;
+        *buf.get_mut(1).ok_or(MqttError::BufferTooSmall)? = 0x00;
+        Ok(2)
+    }
+}
+
 // --- DISCONNECT Packet ---
 #[derive(Debug, Clone)]
 pub struct Disconnect<'a> {

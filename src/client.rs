@@ -467,11 +467,12 @@ where
     }
 
     pub fn get_next_packet_id(&mut self) -> u16 {
+        let id = self.next_packet_id;
         self.next_packet_id = self.next_packet_id.wrapping_add(1);
         if self.next_packet_id == 0 {
             self.next_packet_id = 1;
         }
-        self.next_packet_id
+        id
     }
 }
 
