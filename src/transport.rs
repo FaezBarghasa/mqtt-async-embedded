@@ -80,6 +80,131 @@ pub trait MqttQuicRecvStream {
 }
 
 // ---------------------------------------------------------------------------
+// Universal embedded-io-async Adapters (esp-hal, esp-idf, embassy-net, UART)
+// ---------------------------------------------------------------------------
+
+/// Transport error wrapper for errors implementing `embedded_io_async::Error` or `core::fmt::Debug`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum EmbeddedIoError<E> {
+    Io(E),
+}
+
+impl<E: core::fmt::Debug> TransportError for EmbeddedIoError<E> {}
+
+/// Universal MQTT transport adapter for any stream implementing `embedded_io_async::Read` and `embedded_io_async::Write`.
+///
+/// Provides seamless out-of-the-box compatibility with:
+/// - **ESP32-S series** (ESP32-S2, ESP32-S3) via `esp-hal`, `esp-wifi`, or `esp-idf-svc`
+/// - **ESP32-C series** (ESP32-C2, ESP32-C3, ESP32-C6) via `esp-hal`, `esp-wifi`, or `esp-idf-svc`
+/// - **Embassy** network stacks (`embassy-net::tcp::TcpSocket`)
+/// - Asynchronous UART modems and cellular serial channels
+pub struct EmbeddedIoTransport<S> {
+    stream: S,
+}
+
+impl<S> EmbeddedIoTransport<S> {
+    pub fn new(stream: S) -> Self {
+        Self { stream }
+    }
+
+    pub fn into_inner(self) -> S {
+        self.stream
+    }
+
+    pub fn inner(&self) -> &S {
+        &self.stream
+    }
+
+    pub fn inner_mut(&mut self) -> &mut S {
+        &mut self.stream
+    }
+}
+
+impl<S> MqttTransport for EmbeddedIoTransport<S>
+where
+    S: embedded_io_async::Read + embedded_io_async::Write,
+{
+    type Error = EmbeddedIoError<S::Error>;
+
+    async fn send(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        use embedded_io_async::Write;
+        self.stream
+            .write_all(buf)
+            .await
+            .map_err(EmbeddedIoError::Io)
+    }
+
+    async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        use embedded_io_async::Read;
+        self.stream.read(buf).await.map_err(EmbeddedIoError::Io)
+    }
+}
+
+/// Universal MQTT transport adapter for independent reader and writer streams (e.g. split UART RX/TX or split TCP streams).
+pub struct EmbeddedIoSplitTransport<R, W> {
+    reader: R,
+    writer: W,
+}
+
+impl<R, W> EmbeddedIoSplitTransport<R, W> {
+    pub fn new(reader: R, writer: W) -> Self {
+        Self { reader, writer }
+    }
+
+    pub fn into_inner(self) -> (R, W) {
+        (self.reader, self.writer)
+    }
+
+    pub fn reader(&self) -> &R {
+        &self.reader
+    }
+
+    pub fn writer(&self) -> &W {
+        &self.writer
+    }
+
+    pub fn reader_mut(&mut self) -> &mut R {
+        &mut self.reader
+    }
+
+    pub fn writer_mut(&mut self) -> &mut W {
+        &mut self.writer
+    }
+}
+
+/// Transport error for split reader/writer streams.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SplitIoError<RE, WE> {
+    Read(RE),
+    Write(WE),
+}
+
+impl<RE: core::fmt::Debug, WE: core::fmt::Debug> TransportError for SplitIoError<RE, WE> {}
+
+impl<R, W> MqttTransport for EmbeddedIoSplitTransport<R, W>
+where
+    R: embedded_io_async::Read,
+    W: embedded_io_async::Write,
+{
+    type Error = SplitIoError<R::Error, W::Error>;
+
+    async fn send(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        use embedded_io_async::Write;
+        self.writer
+            .write_all(buf)
+            .await
+            .map_err(SplitIoError::Write)
+    }
+
+    async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        use embedded_io_async::Read;
+        self.reader.read(buf).await.map_err(SplitIoError::Read)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Smoltcp / embassy-net TCP transport implementation
 // ---------------------------------------------------------------------------
 

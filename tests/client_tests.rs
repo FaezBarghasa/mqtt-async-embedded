@@ -295,3 +295,111 @@ async fn test_client_disconnect_lifecycle() {
     let res = client.publish("test", b"data", QoS::AtMostOnce).await;
     assert_eq!(res, Err(MqttError::NotConnected));
 }
+
+/// Simulated in-memory byte buffer implementing embedded_io_async::Read + Write
+struct MockEmbeddedIoStream {
+    rx_queue: VecDeque<u8>,
+    tx_queue: VecDeque<u8>,
+}
+
+impl MockEmbeddedIoStream {
+    fn new() -> Self {
+        let mut stream = Self {
+            rx_queue: VecDeque::new(),
+            tx_queue: VecDeque::new(),
+        };
+        // Pre-populate with CONNACK
+        stream.rx_queue.extend([0x20, 0x02, 0x00, 0x00]);
+        stream
+    }
+}
+
+impl embedded_io_async::ErrorType for MockEmbeddedIoStream {
+    type Error = embedded_io_async::ErrorKind;
+}
+
+impl embedded_io_async::Read for MockEmbeddedIoStream {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        let to_read = std::cmp::min(buf.len(), self.rx_queue.len());
+        for b in buf.iter_mut().take(to_read) {
+            *b = self.rx_queue.pop_front().unwrap();
+        }
+        Ok(to_read)
+    }
+}
+
+impl embedded_io_async::Write for MockEmbeddedIoStream {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.tx_queue.extend(buf.iter().copied());
+        Ok(buf.len())
+    }
+}
+
+#[tokio::test]
+async fn test_embedded_io_transport_compatibility() {
+    use mqtt_async_embedded::EmbeddedIoTransport;
+
+    let stream = MockEmbeddedIoStream::new();
+    let transport = EmbeddedIoTransport::new(stream);
+
+    let options = MqttOptions::new("esp32-sensor", "192.168.1.1", 1883);
+    let mut client: MqttClient<_, 8, 512> = MqttClient::new(transport, options);
+
+    client.connect().await.expect("Connect over EmbeddedIoTransport should succeed");
+    assert_eq!(client.state(), ConnectionState::Connected);
+
+    client
+        .publish("esp32/telemetry", b"{\"status\":\"ok\"}", QoS::AtMostOnce)
+        .await
+        .expect("Publish over EmbeddedIoTransport should succeed");
+
+    assert!(!client.transport().inner().tx_queue.is_empty());
+}
+
+#[tokio::test]
+async fn test_embedded_io_split_transport_compatibility() {
+    use mqtt_async_embedded::EmbeddedIoSplitTransport;
+
+    struct SplitReader(VecDeque<u8>);
+    impl embedded_io_async::ErrorType for SplitReader {
+        type Error = embedded_io_async::ErrorKind;
+    }
+    impl embedded_io_async::Read for SplitReader {
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+            let to_read = std::cmp::min(buf.len(), self.0.len());
+            for b in buf.iter_mut().take(to_read) {
+                *b = self.0.pop_front().unwrap();
+            }
+            Ok(to_read)
+        }
+    }
+
+    struct SplitWriter(VecDeque<u8>);
+    impl embedded_io_async::ErrorType for SplitWriter {
+        type Error = embedded_io_async::ErrorKind;
+    }
+    impl embedded_io_async::Write for SplitWriter {
+        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+            self.0.extend(buf.iter().copied());
+            Ok(buf.len())
+        }
+    }
+
+    let mut reader = SplitReader(VecDeque::new());
+    reader.0.extend([0x20, 0x02, 0x00, 0x00]); // CONNACK
+    let writer = SplitWriter(VecDeque::new());
+
+    let transport = EmbeddedIoSplitTransport::new(reader, writer);
+    let options = MqttOptions::new("esp32-split-uart", "192.168.1.1", 1883);
+    let mut client: MqttClient<_, 8, 512> = MqttClient::new(transport, options);
+
+    client.connect().await.expect("Connect over EmbeddedIoSplitTransport should succeed");
+    assert_eq!(client.state(), ConnectionState::Connected);
+
+    client
+        .publish("esp32/split", b"test", QoS::AtMostOnce)
+        .await
+        .expect("Publish over EmbeddedIoSplitTransport should succeed");
+
+    assert!(!client.transport().writer().0.is_empty());
+}

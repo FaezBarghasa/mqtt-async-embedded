@@ -145,6 +145,18 @@ where
         &self.options
     }
 
+    pub fn transport(&self) -> &T {
+        &self.transport
+    }
+
+    pub fn transport_mut(&mut self) -> &mut T {
+        &mut self.transport
+    }
+
+    pub fn into_transport(self) -> T {
+        self.transport
+    }
+
     /// Attempts to connect to the MQTT broker.
     pub async fn connect(&mut self) -> Result<(), MqttError<T::Error>>
     where

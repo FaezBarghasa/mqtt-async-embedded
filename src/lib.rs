@@ -28,4 +28,7 @@ pub mod util;
 pub use client::{MqttClient, MqttEvent, MqttOptions, MqttVersion, PublishMessage, QuicMqttClient};
 pub use error::{MqttError, ProtocolError};
 pub use packet::{Property, QoS, UnsubAck, Unsubscribe, Will};
-pub use transport::{MqttQuicTransport, MqttTransport};
+pub use transport::{
+    EmbeddedIoError, EmbeddedIoSplitTransport, EmbeddedIoTransport, MqttQuicTransport,
+    MqttTransport, SplitIoError, TransportError,
+};
