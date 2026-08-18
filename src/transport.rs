@@ -1,96 +1,200 @@
-//! # MQTT Transport Abstraction
-//!
-//! This module defines the `MqttTransport` trait, which abstracts the underlying
-//! communication channel (like TCP, UART, etc.), allowing the MQTT client to be
-//! hardware and network-stack agnostic.
-//!
-//! With the Rust 2024 Edition, this trait uses native `async fn`, removing the
-//! need for the `#[async_trait]` macro.
+use core::fmt::Debug;
 
+#[cfg(feature = "std")]
+use std::string::String;
+#[cfg(feature = "std")]
+use std::format;
 
-/// A placeholder error type used in contexts where the actual transport error is not known,
-/// such as in the `EncodePacket` trait.
-#[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct ErrorPlaceHolder;
+pub use crate::error::ErrorPlaceHolder;
 
-/// A trait representing a transport for MQTT packets.
-///
-/// This trait abstracts over any reliable, ordered, stream-based communication channel.
-// `async fn` in traits is now stable in Rust 2024, so `#[async_trait]` is not needed.
+/// A trait representing a transport error.
+pub trait TransportError: Debug {}
+
+impl TransportError for () {}
+impl TransportError for core::convert::Infallible {}
+
+#[cfg(feature = "std")]
+impl TransportError for std::io::Error {}
+
+/// A trait representing a stream-based transport for MQTT packets.
 pub trait MqttTransport {
     /// The error type returned by the transport.
-    type Error: core::fmt::Debug;
+    type Error: TransportError;
 
     /// Sends a buffer of data over the transport.
     async fn send(&mut self, buf: &[u8]) -> Result<(), Self::Error>;
 
-    /// Receives data from the transport into a buffer.
-    ///
-    /// Returns the number of bytes read.
+    /// Receives data from the transport into a buffer. Returns bytes read.
     async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error>;
+
+    /// Fast-path vectored write: sends multiple contiguous slices in order without intermediate buffer copies.
+    async fn send_vectored(&mut self, bufs: &[&[u8]]) -> Result<(), Self::Error> {
+        for b in bufs {
+            if !b.is_empty() {
+                self.send(b).await?;
+            }
+        }
+        Ok(())
+    }
 }
 
-// Allow the placeholder to be treated as a transport error for generic contexts.
-impl TransportError for ErrorPlaceHolder {}
+/// A trait representing an MQTT-over-QUIC transport.
+/// Provides stream multiplexing (eliminating Head-of-Line blocking) and fast unreliable datagrams.
+pub trait MqttQuicTransport {
+    type Error: TransportError;
+    type SendStream: MqttQuicSendStream<Error = Self::Error>;
+    type RecvStream: MqttQuicRecvStream<Error = Self::Error>;
 
-/// A marker trait for transport-related errors.
-pub trait TransportError: core::fmt::Debug {}
+    /// Opens a bidirectional stream (ideal for control packets CONNECT/CONNACK or QoS 1 request-response).
+    async fn open_bi_stream(&mut self) -> Result<(Self::SendStream, Self::RecvStream), Self::Error>;
 
-/// An example TCP transport implementation using `embassy-net`.
+    /// Opens a unidirectional send stream (ideal for QoS 0 telemetry bursts).
+    async fn open_uni_stream(&mut self) -> Result<Self::SendStream, Self::Error>;
+
+    /// Accepts an incoming bidirectional stream initiated by the broker.
+    async fn accept_bi_stream(&mut self) -> Result<(Self::SendStream, Self::RecvStream), Self::Error>;
+
+    /// Sends an unreliable QUIC datagram (fastest possible transfer for real-time sensor streams).
+    async fn send_datagram(&mut self, data: &[u8]) -> Result<(), Self::Error>;
+
+    /// Receives an unreliable QUIC datagram.
+    async fn recv_datagram(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error>;
+}
+
+/// QUIC Send Stream abstraction.
+pub trait MqttQuicSendStream {
+    type Error: TransportError;
+    async fn write(&mut self, buf: &[u8]) -> Result<(), Self::Error>;
+    async fn finish(&mut self) -> Result<(), Self::Error>;
+}
+
+/// QUIC Recv Stream abstraction.
+pub trait MqttQuicRecvStream {
+    type Error: TransportError;
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error>;
+}
+
+// ---------------------------------------------------------------------------
+// Smoltcp / embassy-net TCP transport implementation
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "transport-smoltcp")]
+impl TransportError for embassy_net::tcp::Error {}
+
 #[cfg(feature = "transport-smoltcp")]
 pub struct TcpTransport<'a> {
     socket: embassy_net::tcp::TcpSocket<'a>,
-    timeout: Duration,
+    timeout: embassy_time::Duration,
 }
 
 #[cfg(feature = "transport-smoltcp")]
 impl<'a> TcpTransport<'a> {
-    /// Creates a new `TcpTransport` with the given socket and timeout.
-    pub fn new(socket: embassy_net::tcp::TcpSocket<'a>, timeout: Duration) -> Self {
+    pub fn new(socket: embassy_net::tcp::TcpSocket<'a>, timeout: embassy_time::Duration) -> Self {
         Self { socket, timeout }
-    }
-
-    /// A helper function to perform a read with a timeout.
-    async fn read_with_timeout<'b>(
-        &'b mut self,
-        buf: &'b mut [u8],
-    ) -> Result<Result<usize, MqttError<embassy_net::tcp::Error>>, MqttError<embassy_net::tcp::Error>>
-    {
-        // Use `select` to race the read operation against a timer.
-        let read_fut = self.socket.read(buf).map(Ok);
-        let timer = Timer::after(self.timeout).map(|_| Err(MqttError::Timeout));
-
-        match futures::future::select(read_fut, timer).await {
-            futures::future::Either::Left((Ok(Ok(n)), _)) => {
-                if n == 0 {
-                    // If the peer closes the connection, read returns 0.
-                    Err(MqttError::Protocol(super::error::ProtocolError::InvalidResponse))
-                } else {
-                    Ok(Ok(n))
-                }
-            }
-            futures::future::Either::Left((Ok(Err(e)), _)) => Ok(Err(MqttError::Transport(e))),
-            futures::future::Either::Right((Err(e), _)) => Err(e),
-            _ => unreachable!(),
-        }
     }
 }
 
 #[cfg(feature = "transport-smoltcp")]
 impl<'a> MqttTransport for TcpTransport<'a> {
-    type Error = MqttError<embassy_net::tcp::Error>;
+    type Error = embassy_net::tcp::Error;
 
     async fn send(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
-        self.socket.write_all(buf).await.map_err(MqttError::Transport)
+        use embedded_io_async::Write;
+        self.socket.write_all(buf).await
     }
 
     async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        match self.read_with_timeout(buf).await {
-            Ok(Ok(n)) => Ok(n),
-            Ok(Err(e)) => Err(e),
-            Err(e) => Err(e),
+        use embedded_io_async::Read;
+        self.socket.read(buf).await
+    }
+}
+
+// ---------------------------------------------------------------------------
+// QUIC Transport implementation (Host / std / Linux embedded using Quinn)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "transport-quic")]
+#[derive(Debug)]
+pub struct QuinnError(pub String);
+
+#[cfg(feature = "transport-quic")]
+impl TransportError for QuinnError {}
+
+#[cfg(feature = "transport-quic")]
+pub struct QuinnQuicTransport {
+    pub connection: quinn::Connection,
+}
+
+#[cfg(feature = "transport-quic")]
+impl QuinnQuicTransport {
+    pub fn new(connection: quinn::Connection) -> Self {
+        Self { connection }
+    }
+}
+
+#[cfg(feature = "transport-quic")]
+pub struct QuinnSendStream(pub quinn::SendStream);
+
+#[cfg(feature = "transport-quic")]
+impl MqttQuicSendStream for QuinnSendStream {
+    type Error = QuinnError;
+
+    async fn write(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        use tokio::io::AsyncWriteExt;
+        self.0.write_all(buf).await.map_err(|e| QuinnError(format!("Write error: {e}")))
+    }
+
+    async fn finish(&mut self) -> Result<(), Self::Error> {
+        self.0.finish().map_err(|e| QuinnError(format!("Finish error: {e}")))
+    }
+}
+
+#[cfg(feature = "transport-quic")]
+pub struct QuinnRecvStream(pub quinn::RecvStream);
+
+#[cfg(feature = "transport-quic")]
+impl MqttQuicRecvStream for QuinnRecvStream {
+    type Error = QuinnError;
+
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        match self.0.read(buf).await.map_err(|e| QuinnError(format!("Read error: {e}")))? {
+            Some(n) => Ok(n),
+            None => Ok(0),
         }
     }
 }
 
+#[cfg(feature = "transport-quic")]
+impl MqttQuicTransport for QuinnQuicTransport {
+    type Error = QuinnError;
+    type SendStream = QuinnSendStream;
+    type RecvStream = QuinnRecvStream;
+
+    async fn open_bi_stream(&mut self) -> Result<(Self::SendStream, Self::RecvStream), Self::Error> {
+        let (send, recv) = self.connection.open_bi().await.map_err(|e| QuinnError(format!("Open bi error: {e}")))?;
+        Ok((QuinnSendStream(send), QuinnRecvStream(recv)))
+    }
+
+    async fn open_uni_stream(&mut self) -> Result<Self::SendStream, Self::Error> {
+        let send = self.connection.open_uni().await.map_err(|e| QuinnError(format!("Open uni error: {e}")))?;
+        Ok(QuinnSendStream(send))
+    }
+
+    async fn accept_bi_stream(&mut self) -> Result<(Self::SendStream, Self::RecvStream), Self::Error> {
+        let (send, recv) = self.connection.accept_bi().await.map_err(|e| QuinnError(format!("Accept bi error: {e}")))?;
+        Ok((QuinnSendStream(send), QuinnRecvStream(recv)))
+    }
+
+    async fn send_datagram(&mut self, data: &[u8]) -> Result<(), Self::Error> {
+        self.connection.send_datagram(bytes::Bytes::copy_from_slice(data)).map_err(|e| QuinnError(format!("Datagram error: {e}")))
+    }
+
+    async fn recv_datagram(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        let dgram = self.connection.read_datagram().await.map_err(|e| QuinnError(format!("Datagram recv error: {e}")))?;
+        if dgram.len() > buf.len() {
+            return Err(QuinnError("Buffer too small for datagram".into()));
+        }
+        buf[..dgram.len()].copy_from_slice(&dgram);
+        Ok(dgram.len())
+    }
+}

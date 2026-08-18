@@ -1,37 +1,37 @@
 [package]
 name = "mqtt-async-embedded"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2024"
-authors = ["Faez Barghasa <faez.barghasa.org@gmail.com.com>"]
-description = "An async, no_std-compatible MQTT client for embedded systems using Embassy."
+authors = ["Faez Barghasa <faez.barghasa.org@gmail.com>"]
+description = "High-performance, async, no_std-compatible MQTT client for embedded systems with multi-packet batching and QUIC/H3 support."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/FaezBarghasa/mqtt-async-embedded"
 documentation = "https://docs.rs/mqtt-async-embedded"
 readme = "README.md"
-keywords = ["mqtt", "async", "embedded", "embassy", "no_std"]
+keywords = ["mqtt", "async", "embedded", "embassy", "no_std", "quic"]
 categories = ["embedded", "no-std", "asynchronous", "network-programming"]
 
 [dependencies]
-embedded-hal = "1.0.0"
-embedded-hal-async = "1.0.0"
-embedded-io-async = "0.6.1"
+embedded-hal = "1.0"
+embedded-hal-async = "1.0"
+embedded-io-async = "0.6"
 heapless = "0.9"
-defmt = { version = "1.0.1", optional = true }
-embassy-time = "0.5.0"
+defmt = { version = "1.0", optional = true }
+embassy-time = "0.5"
 embassy-net = { version = "0.7", optional = true }
-async-trait = "0.1"
 nom = { version = "8", optional = true }
-futures = { version = "0.3.30", default-features = false }
+futures = { version = "0.3.31", default-features = false }
 
-# Dependencies for examples
+# Dependencies for std / host / examples / QUIC
 log = { version = "0.4", optional = true }
 env_logger = { version = "0.11", optional = true }
-embassy-executor = { version = "0.9.1", optional = true }
-static_cell = { version = "2.1.0", optional = true }
-embassy-sync = { version = "0.7.2", optional = true }
-tokio = { version = "1", features = ["full"], optional = true }
-
-
+embassy-executor = { version = "0.9", optional = true }
+static_cell = { version = "2.1", optional = true }
+embassy-sync = { version = "0.7", optional = true }
+tokio = { version = "1.47", features = ["full"], optional = true }
+bytes = { version = "1.10", optional = true }
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls", "ring"], optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
 
 [features]
 default = []
@@ -40,12 +40,22 @@ v5 = []
 defmt = ["dep:defmt"]
 nom = ["dep:nom"]
 transport-smoltcp = ["dep:embassy-net", "embassy-net/tcp", "embassy-net/proto-ipv4", "embassy-net/medium-ethernet"]
-
+transport-quic = ["std", "dep:quinn", "dep:rustls", "dep:bytes"]
 
 [[example]]
 name = "desktop_mock"
 required-features = ["std"]
 path = "examples/desktop_mock.rs"
+
+[[example]]
+name = "multipacket_burst"
+required-features = ["std"]
+path = "examples/multipacket_burst.rs"
+
+[[example]]
+name = "quic_client"
+required-features = ["transport-quic"]
+path = "examples/quic_client.rs"
 
 [[example]]
 name = "esp8266_uart"
@@ -54,4 +64,5 @@ path = "examples/esp8266_uart.rs"
 [[example]]
 name = "smoltcp_ethernet"
 path = "examples/smoltcp_ethernet.rs"
+
 
