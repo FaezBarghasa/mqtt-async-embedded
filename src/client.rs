@@ -22,7 +22,6 @@ pub enum MqttVersion {
 
 /// Configuration options for the `MqttClient`.
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct MqttOptions<'a> {
     pub client_id: &'a str,
     pub broker_addr: &'a str,
@@ -33,6 +32,22 @@ pub struct MqttOptions<'a> {
     pub username: Option<&'a str>,
     pub password: Option<&'a str>,
     pub will: Option<Will<'a>>,
+}
+
+#[cfg(feature = "defmt")]
+impl<'a> defmt::Format for MqttOptions<'a> {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(
+            fmt,
+            "MqttOptions {{ client_id: {}, broker_addr: {}, broker_port: {}, version: {}, keep_alive_secs: {}, clean_session: {} }}",
+            self.client_id,
+            self.broker_addr,
+            self.broker_port,
+            self.version,
+            self.keep_alive.as_secs(),
+            self.clean_session,
+        );
+    }
 }
 
 impl<'a> MqttOptions<'a> {

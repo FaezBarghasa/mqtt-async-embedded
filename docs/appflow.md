@@ -51,8 +51,9 @@ stateDiagram-v2
 
 ### 3.1. Connection Flow
 1. **Configuration**: Construct `MqttOptions` with `client_id`, `broker_addr`, `broker_port`, and optionally `with_version()`, `with_keep_alive()`, or `with_will()`.
-2. **Instantiation**: Instantiate `MqttClient::<T, MAX_TOPICS, BUF_SIZE>::new(transport, options)`.
-3. **Handshake**:
+2. **Transport Binding**: Wrap any `embedded-io-async` socket (`esp-hal`, `esp-wifi`, `esp-idf`, or `embassy-net`) via `EmbeddedIoTransport::new(socket)`.
+3. **Instantiation**: Instantiate `MqttClient::<T, MAX_TOPICS, BUF_SIZE>::new(transport, options)`.
+4. **Handshake**:
    - `client.connect().await?`
    - Builds `Connect` packet with client identifier, clean session, keep-alive duration, and optional Last Will & Testament payload/QoS/retain.
    - Flushes packet onto the `MqttTransport` layer.

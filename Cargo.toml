@@ -52,7 +52,7 @@ std = [
     "embassy-time/std",
 ]
 v5 = []
-defmt = ["dep:defmt", "heapless/defmt", "embassy-time/defmt"]
+defmt = ["dep:defmt", "heapless/defmt"]
 nom = ["dep:nom"]
 transport-smoltcp = [
     "dep:embassy-net",

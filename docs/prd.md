@@ -9,10 +9,18 @@
 ## 2. Target Persona & Use Cases
 
 - **Target Audience**: Embedded Rust Engineers, IoT Firmware Developers, Embedded Systems Architects.
-- **Primary Technical Environments**: ARM Cortex-M, ESP32, RISC-V, Nordic nRF, STM32 microcontrollers.
+- **Primary Technical Environments**:
+  - **ESP32-S Series**: ESP32-S2, ESP32-S3 (Xtensa cores)
+  - **ESP32-C Series**: ESP32-C2, ESP32-C3, ESP32-C6, ESP32-H2 (RISC-V cores)
+  - **ARM Cortex-M**: Cortex-M0/M3/M4/M7/M33 microcontrollers (STM32, Nordic nRF, RP2040)
+- **Framework Support**:
+  - **`esp-hal`** (bare-metal `no_std`) & **`esp-wifi`**
+  - **`esp-idf-svc` / `esp-idf-hal`** (ESP-IDF ecosystem)
+  - **`embassy-executor`** & **`embassy-net`**
 - **Key Use Cases**:
-  - Telemetry collection from industrial sensor nodes over cellular or Wi-Fi modems.
-  - Smart home device control with low power consumption requirements.
+  - High-frequency telemetry collection from industrial sensor nodes over Wi-Fi, Ethernet, or cellular modems.
+  - Multi-message burst telemetry minimizing radio transmission duration and battery power consumption.
+  - Ultra-fast real-time telemetry streaming over QUIC / H3 datagram channels.
   - Embedded edge devices requiring non-blocking network I/O with strict RAM limits.
 
 ---
@@ -29,7 +37,7 @@
 | **FR-04** | Support message publishing (`PUBLISH`) with QoS 0 & QoS 1 and defensive QoS 2 validation | High | Implemented |
 | **FR-05** | Support topic subscriptions (`SUBSCRIBE` / `SUBACK`) and dynamic unsubscriptions (`UNSUBSCRIBE` / `UNSUBACK`) | High | Implemented |
 | **FR-06** | Automatic heartbeat transmission (`PINGREQ` / `PINGRESP`) during idle polling | High | Implemented |
-| **FR-07** | Hardware-agnostic transport interface (`MqttTransport` trait) | High | Implemented |
+| **FR-07** | Universal `embedded-io-async` transport adapters (`EmbeddedIoTransport` & `EmbeddedIoSplitTransport`) | High | Implemented |
 | **FR-08** | Multi-packet burst sending (`publish_batch`) and polling (`poll_batch`) | High | Implemented |
 | **FR-09** | MQTT over QUIC / HTTP/3 transport interface (`MqttQuicTransport` & `QuicMqttClient`) | High | Implemented |
 | **FR-10** | Real-time zero-overhead telemetry datagrams | High | Implemented |

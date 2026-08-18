@@ -63,9 +63,9 @@ pub trait MqttQuicTransport {
 }
 ```
 
-### 2.3. Control Packet Encoding & Decoding (`src/packet.rs` & `src/util.rs`)
-- **Trait `EncodePacket` / `DecodePacket`**: Zero-copy packet serialization and deserialization with strict slice bounds checks (`BufferTooSmall`, `IncompletePacket`).
-- **`RawPacketFrameIter`**: Zero-copy streaming iterator that slices and parses multiple MQTT packets from a single continuous receive buffer.
+#### Universal `embedded-io-async` Adapters
+- **`EmbeddedIoTransport<S>`**: Wraps any single stream `S: embedded_io_async::Read + embedded_io_async::Write` (`esp-hal`, `esp-wifi`, `esp-idf-svc`, `embassy-net`).
+- **`EmbeddedIoSplitTransport<R, W>`**: Wraps separate reader `R` and writer `W` streams (split UART RX/TX or split TCP channels).
 
 ---
 
@@ -75,29 +75,40 @@ pub trait MqttQuicTransport {
 Designed specifically for cooperative async executors like `embassy-executor`. Polling processes all frames available in `rx_buffer`, automatically generating QoS 1 `PUBACK` responses inline.
 
 ### 3.2. Lifetime Annotations & Zero-Allocation Safety
-`MqttEvent<'p>` borrows from the client's internal `rx_buffer` for duration `'p`. Because Rust enforces exclusive borrow semantics, events are processed without dynamic allocation or heap fragmentation.
+`MqttEvent<'p>` borrows from the client's internal `rx_buffer` for duration `'p'`. Because Rust enforces exclusive borrow semantics, events are processed without dynamic allocation or heap fragmentation.
 
 ---
 
-## 4. Feature Flags & Compilation Matrix
+## 4. Feature Flags & Target Matrix
 
-- **`default = []`**: Standard `no_std` compilation for embedded targets.
+- **`default = []`**: Standard `no_std` compilation for embedded microcontrollers.
 - **`std`**: Includes standard library support for host testing and mocks.
 - **`v5`**: Enables MQTT v5 extended properties and user properties.
-- **`defmt`**: Implements `defmt::Format` for high-efficiency microcontroller logging.
+- **`defmt`**: Implements `defmt::Format` across all packet and client types for zero-overhead microcontroller logging.
 - **`transport-smoltcp`**: Integrates directly with `embassy-net` TCP stack.
 - **`transport-quic`**: Enables MQTT over QUIC / H3 via `quinn`.
+
+### Supported Target Architectures
+- **ESP32-S Series**: ESP32-S2, ESP32-S3 (`xtensa-esp32s3-none-elf`)
+- **ESP32-C Series**: ESP32-C2, ESP32-C3, ESP32-C6, ESP32-H2 (`riscv32imc-unknown-none-elf`, `riscv32imac-unknown-none-elf`)
+- **ARM Cortex-M**: Cortex-M0/M3/M4/M7/M33 (`thumbv7em-none-eabihf`)
 
 ---
 
 ## 5. Verification & Testing Strategy
 
-1. **Unit Testing (`cargo test --features std`)**:
+1. **Unit Testing (`tests/engine_tests.rs`)**:
    - Variable-byte integer encoding/peeking tests.
    - Packet codec roundtrip tests (`Publish`, `Subscribe`, `Unsubscribe`, `Connect` with LWT, `PubAck`, `ConnAck`, `Disconnect`).
    - Bounds safety and malformed packet tests (`read_properties` truncation, 0-byte buffer encoding).
    - Multi-packet streaming frame iteration tests (`RawPacketFrameIter`).
-2. **Integration Testing (`examples/desktop_mock.rs` & `examples/multipacket_burst.rs`)**:
-   - Batch packet burst transmission verification.
-   - TCP lifecycle connection, subscription, and disconnection tests.
+2. **Client-Level Integration Testing (`tests/client_tests.rs`)**:
+   - In-memory async mock transport verifying connection lifecycle, refusal handling, QoS 0/1 burst sending, automatic QoS 1 `PUBACK`, dynamic unsubscription, `EmbeddedIoTransport` stream binding, and `EmbeddedIoSplitTransport` binding (20 tests total).
+3. **Hardware Examples**:
+   - `examples/esp32_wifi_embassy.rs`: ESP32 Wi-Fi & Embassy async task loop.
+   - `examples/multipacket_burst.rs`: Multi-packet batch sending.
+   - `examples/quic_client.rs`: Real-time QUIC datagrams.
+   - `examples/esp8266_uart.rs`: AT UART hardware driver bridge.
+   - `examples/smoltcp_ethernet.rs`: Native `embassy-net` TCP socket.
+   - `examples/desktop_mock.rs`: TCP lifecycle connection, subscription, and disconnection tests.
 
