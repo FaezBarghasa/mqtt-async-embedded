@@ -5,6 +5,35 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), follow
 
 ---
 
+## [1.6.0] - 2026-08-31
+
+### Added
+- **Cargo Workspace Modularization**:
+  - Split the monolithic project into 5 dedicated subcrates: `mqtt-packet`, `mqtt-embedded`, `mqtt-tokio`, `mqtt-bridges`, and `mqtt-async-embedded` facade.
+- **Dual Licensing**:
+  - Re-licensed all crates and documentation under standard dual licensing: `MIT OR Apache-2.0`.
+- **Security & Correctness**:
+  - Enforced `#![forbid(unsafe_code)]` across all 5 workspace crates.
+  - Implemented `libfuzzer-sys` fuzzing harness in `fuzz/` testing all MQTT 3.1.1 and 5.0 decoders.
+  - Expanded `proptest` test suite covering QoS 1 (`PubAck`), QoS 2 (`PubRec`, `PubRel`, `PubComp`), variable-byte integers, and UTF-8 strings.
+- **Embedded & Bare-Metal Enhancements**:
+  - Zero-copy DMA stream publishing via `begin_stream_publish` and `MqttStreamWriter::write_dma_slice`.
+  - Added `TlsTransport` trait for pluggable MCU TLS backends (`embedded-tls`, `mbedtls-sys`).
+  - Strict compile-time bounded inflight queues via `heapless::spsc::Queue` and const generics.
+- **Redox OS Support & CI Matrix**:
+  - Added `x86_64-unknown-redox` to the automated CI target matrix and verified cross-compilation.
+- **Curated Example Gallery**:
+  - `examples/stm32h7_embassy_mqtt.rs`: Bare-metal STM32H7 DMA ADC stream publishing.
+  - `examples/esp32c3_uart_mqtt.rs`: ESP32-C3 / RISC-V UART modem serial transport.
+  - `examples/redox_daemon.rs`: Redox OS microkernel gateway background daemon.
+  - `examples/slint_dashboard.rs`: Slint UI property and live camera stream bindings.
+- **Architecture Decision Records (ADRs)**:
+  - Documented ADRs 0001 through 0005 in `docs/adr/`.
+- **Performance Benchmarks**:
+  - Criterion benchmark suite for packet encoding, decoding, and variable-byte integer codec in `benches/`.
+
+---
+
 ## [1.5.1] - 2026-08-31
 
 ### Added
