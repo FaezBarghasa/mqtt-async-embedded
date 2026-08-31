@@ -1,86 +1,85 @@
 # Application Flow & Execution Lifecycle
 
-State machine, asynchronous control flow, and packet exchange lifecycles for `mqtt-async-embedded`.
+State machine, asynchronous control flow, packet exchange lifecycles, and session data recovery flows for `mqtt-async-embedded`.
 
 ---
 
-## 1. High-Level Architecture Flow
+## 1. High-Level Dual-Engine Architecture Flow
 
 ```mermaid
 flowchart TD
-    A[Init: MqttOptions & Transport] --> B[Create MqttClient]
-    B --> C[client.connect]
-    C -->|CONNACK reason = 0| D[Connected State]
-    C -->|Refused / Err| E[Disconnected]
-    D --> F[client.poll]
-    F --> G{Keep-Alive Expired?}
-    G -- Yes --> H[Send PINGREQ & Reset Timer]
-    G -- No --> I[Read Transport RX Bytes]
-    I --> J{Bytes Available?}
-    J -- Yes --> K[Decode Packet -> Emit MqttEvent]
-    J -- No --> F
-    D --> L[Publish / Subscribe API]
-    L --> M[Encode Frame -> Send Transport TX]
+    subgraph Initialization [Client Initialization]
+        A1[Embedded: MqttOptions + MqttTransport] --> B1[Create MqttClient<T, MAX_TOPICS, BUF_SIZE>]
+        A2[Tokio: ClientOptions URI] --> B2[Client::connect / Client::new_split]
+    end
+
+    subgraph EmbeddedLoop [Embedded no_std Event Loop]
+        B1 --> C1[client.connect]
+        C1 --> D1[client.poll loop]
+        D1 --> E1[Zero-RAM chunk streaming / Burst batching]
+    end
+
+    subgraph TokioLoop [Tokio Background Driver & Recovery]
+        B2 --> C2[AsyncClient Handle]
+        B2 --> D2[EventLoop Background Driver]
+        D2 --> E2{Connection Active?}
+        E2 -- Yes --> F2[Multiplex Requests & Packets]
+        E2 -- Network Drop --> G2[Data Recovery & Reconnect Backoff]
+        G2 --> H2[Resend Unacked Inflight DUP=true]
+        G2 --> I2[Restore Active Subscriptions]
+        G2 --> J2[Drain Offline Queue Buffer]
+        J2 --> E2
+    end
 ```
 
 ---
 
-## 2. Client State Machine
-
-Managed by `ConnectionState` in `src/client.rs`:
+## 2. Multi-Threaded Data Stream & Recovery Flow
 
 ```mermaid
-stateDiagram-v2
-    [*] --> Disconnected
-    Disconnected --> Connecting: client.connect()
-    Connecting --> Connected: CONNACK (ReasonCode = 0)
-    Connecting --> Disconnected: Connection Refused / Transport Err
-    Connected --> Disconnected: Transport Err / Disconnect / Timeout
-```
+sequenceDiagram
+    autonumber
+    participant App as Worker Threads
+    participant Prod as DataStreamProducer
+    participant Journal as Sliding Recovery Journal
+    participant EL as EventLoop Driver
+    participant Broker as MQTT Broker
+    participant Cons as DataStreamConsumer
 
-### States
-- **`Disconnected`**: Idle. Calling `publish()` or `poll()` returns `MqttError::NotConnected`.
-- **`Connecting`**: Serializes `CONNECT` into `tx_buffer`, sends via transport, awaits `CONNACK` into `rx_buffer`.
-- **`Connected`**: Active connection. Updates `last_tx_time`. Ready for `poll()`, `publish()`, and `subscribe()`.
+    App->>Prod: send(payload)
+    Prod->>Prod: Atomic fetch_add(seq_id) & timestamp
+    Prod->>Journal: Buffer chunk (sliding window)
+    Prod->>EL: ClientRequest::Publish
+    EL->>Broker: PUBLISH (wire chunk)
+    Broker->>EL: Forward PUBLISH to subscribers
+    EL->>Cons: TopicRouter::dispatch
+    Cons->>Cons: Check seq_id & Reorder Buffer
+    Cons-->>App: recv_ordered() yields ordered chunk
+
+    Note over EL,Broker: Network Disconnect Occurs
+    Broker--xEL: Connection Dropped
+    EL->>EL: Enter Reconnect Backoff
+    EL->>Broker: Reconnect & Handshake (CONNACK)
+    Prod->>EL: replay_recovery_journal()
+    EL->>Broker: PUBLISH (DUP=true, unacked chunks)
+    Broker->>Cons: Deliver replayed recovery chunks
+    Cons->>Cons: Deduplicate old seq_id & emit missing gaps
+```
 
 ---
 
 ## 3. Core Operational Lifecycles
 
-### 3.1. Connection Flow
-1. Configure `MqttOptions` (broker IP/port, client ID, keep-alive, LWT).
-2. Wrap socket with `EmbeddedIoTransport::new(socket)`.
-3. Instantiate `MqttClient::<T, MAX_TOPICS, BUF_SIZE>::new(transport, options)`.
-4. Run `client.connect().await` to exchange `CONNECT` and `CONNACK`.
+### 3.1. Reconnection & Data Recovery Engine
+1. **Detection**: Any I/O error or abrupt disconnect triggers `ConnectionStatus::Disconnected`.
+2. **Backoff**: `ReconnectPolicy::compute_delay(attempt)` computes exponential backoff with jitter.
+3. **Transport Reconnection**: Reconnects over configured target (TCP, TLS, QUIC, Unix socket, or Windows Named Pipe).
+4. **Subscription Restoration**: All active subscriptions in `active_subscriptions` map are re-subscribed with broker `SUBSCRIBE` packets.
+5. **In-Flight Retransmission**: Unacknowledged QoS 1 & 2 messages are re-encoded with `dup = true` and flushed to the network.
+6. **Offline Queue Drain**: Messages buffered in the offline queue during the outage are drained according to `DropStrategy`.
 
-### 3.2. Polling Loop (`client.poll()`)
-Run inside an `async` loop:
-1. **Heartbeat Check**: Sends `PINGREQ` if `last_tx_time.elapsed() >= keep_alive`.
-2. **Read Hardware**: Calls `transport.recv(&mut rx_buffer)`.
-3. **Decode Frame**: Parses received bytes slice without copying.
-4. **Emit Event**: Returns `MqttEvent<'p>` (`Publish`, `PubAck`, `SubAck`, `UnsubAck`, `PingResp`, `Disconnect`).
-
-### 3.3. Publish Operations
-- **Single Publish (`client.publish`)**: Validates QoS (QoS 0 or 1), writes header + payload to `tx_buffer`, flushes to transport.
-- **Burst Publish (`client.publish_batch`)**: Serializes multiple `PublishMessage` items into one network frame to cut socket syscall overhead.
-- **QoS 1 Handling**: Inbound publishes auto-queue `PUBACK` during `poll()`. Outbound publishes await `PubAck`.
-
-### 3.4. Subscribe & Unsubscribe
-- **Subscribe (`client.subscribe`)**: Serializes `SUBSCRIBE` with topic filters + requested QoS, generates `packet_id`, awaits `SubAck`.
-- **Unsubscribe (`client.unsubscribe`)**: Serializes `UNSUBSCRIBE` with topic filters, generates `packet_id`, awaits `UnsubAck`.
-
-### 3.5. Batch Event Polling (`client.poll_batch`)
-1. Reads up to `BUF_SIZE` bytes in one `recv()`.
-2. `RawPacketFrameIter` slices every complete packet frame zero-copy.
-3. Yields `heapless::Vec<MqttEvent<'p>, MAX_EVENTS>`.
-
-### 3.6. QUIC Telemetry Flow
-1. **Control Stream**: Bidirectional stream for `CONNECT`, `CONNACK`, `PINGREQ`, `DISCONNECT`.
-2. **Dedicated Telemetry Streams**: `open_telemetry_stream()` isolates topic traffic, avoiding Head-of-Line blocking.
-3. **Datagram Channel**: `publish_datagram()` sends QoS 0 telemetry over unreliable QUIC datagrams with sub-millisecond dispatch.
-
-### 3.7. Zero-RAM Chunk Stream Publishing
-1. Call `client.begin_stream_publish(topic, total_len, qos)`.
-2. Encodes `PUBLISH` fixed header with full length and sends immediately.
-3. Call `stream_writer.write_chunk(&chunk).await` repeatedly as DMA/ADC generates data.
-4. Call `stream_writer.finish()` to assert `remaining_bytes == 0`.
+### 3.2. Topic-Filtered Stream Routing
+1. Calling `client.subscribe_stream("sensors/+/telemetry", qos)` registers an `mpsc::Sender<PublishMessage>` in the `TopicRouter` trie.
+2. Inbound packets are matched against the trie nodes in $O(k)$ time where $k$ is the topic depth.
+3. Matching streams receive zero-copy cloned `PublishMessage` handles.
+4. If a subscriber drops its stream, the router detects closed channels and prunes dead nodes automatically.
