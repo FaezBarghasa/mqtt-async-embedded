@@ -1,6 +1,6 @@
 # Technical Design Document (TDD)
 
-Subsystem architectures, transport contracts, and testing specifications for `mqtt-async-embedded`.
+Subsystem architecture, transport contracts, and test strategy for `mqtt-async-embedded`.
 
 ---
 
@@ -8,9 +8,9 @@ Subsystem architectures, transport contracts, and testing specifications for `mq
 
 ```
 +------------------------------------------------------------------+
-|                    Application (Embassy Task)                    |
+|                    Application (Task / Worker)                   |
 +------------------------------------------------------------------+
-|  MqttClient<'a, T, MAX_TOPICS, BUF_SIZE>                         |
+|  MqttClient<'a, T, MAX_TOPICS, BUF_SIZE> / Tokio AsyncClient    |
 |   +-------------------+  +-------------------+  +---------------+|
 |   |  ConnectionState  |  |  tx_buf / rx_buf  |  |  MqttOptions  ||
 |   +-------------------+  +-------------------+  +---------------+|
@@ -21,8 +21,8 @@ Subsystem architectures, transport contracts, and testing specifications for `mq
                     |  MqttTransport Trait      |
                     |  MqttQuicTransport Trait  |
                     +---------------------------+
-                     /            |            \
-                    v             v             v
+                      /           |            \
+                     v            v             v
              TcpSocket        UART Modem      QUIC Stream
             (embassy-net)   (ESP8266/AT)    (Quinn / Cellular)
 ```
@@ -31,15 +31,23 @@ Subsystem architectures, transport contracts, and testing specifications for `mq
 
 ## 2. Core Modules
 
-### 2.1. Client Module (`src/client.rs`)
-- **`MqttOptions<'a>`**: Holds broker parameters, keep-alive interval, clean session, credentials, and LWT configuration.
-- **`MqttClient<'a, T, MAX_TOPICS, BUF_SIZE>`**:
-  - `publish(topic, payload, qos)`: Publishes single message.
-  - `publish_batch(&[PublishMessage])`: Packs multiple messages into a single network frame.
-  - `subscribe(&[(&str, QoS)])`: Sends subscription request and returns `packet_id`.
-  - `unsubscribe(&[&str])`: Sends unsubscription request and returns `packet_id`.
-  - `poll()` / `poll_batch()`: Parses RX buffer and yields zero-copy `MqttEvent<'p>`.
-- **`QuicMqttClient<'a, Q, BUF_SIZE>`**: Transmits real-time telemetry over unreliable QUIC datagrams.
+### 2.1. Client Module (`src/client.rs` & `src/tokio_client/*`)
+
+- **`MqttOptions<'a>`**: Broker endpoint, keep-alive, clean session, LWT, credentials.
+- **`MqttClient<'a, T, MAX_TOPICS, BUF_SIZE>` (`no_std`)**:
+  - `publish(topic, payload, qos)`: Single packet write.
+  - `publish_batch(&[PublishMessage])`: Packs multiple messages into one network write.
+  - `subscribe(&[(&str, QoS)])`: Sends subscription array, returns `packet_id`.
+  - `unsubscribe(&[&str])`: Sends unsubscription array, returns `packet_id`.
+  - `poll()` / `poll_batch()`: Parses RX buffer, returns zero-copy `MqttEvent<'p>`.
+  - `begin_stream_publish(topic, total_len, qos)`: Direct-to-wire streaming without intermediate buffer allocation.
+- **`Client` / `AsyncClient` (`tokio-client`)**:
+  - `Client::connect(options)`: Spawns background `EventLoop` driver task.
+  - `publish_batch(messages)`: Zero-copy burst publishing via `bytes::Bytes`.
+  - `subscribe_stream(topic, qos)`: Topic-filtered stream backed by a prefix trie.
+  - `create_datastream_producer(topic, qos, window)`: Multi-worker producer with atomic ordering and sliding recovery journal.
+
+---
 
 ### 2.2. Transport Abstraction (`src/transport.rs`)
 
@@ -63,32 +71,31 @@ pub trait MqttQuicTransport {
 }
 ```
 
-- **`EmbeddedIoTransport<S>`**: Wraps any combined async stream (`Read + Write`).
-- **`EmbeddedIoSplitTransport<R, W>`**: Wraps separate reader and writer streams (e.g. split UART RX/TX).
+- **`EmbeddedIoTransport<S>`**: Wraps unified `embedded_io_async::Read + Write` streams.
+- **`EmbeddedIoSplitTransport<R, W>`**: Wraps split reader/writer streams (e.g. split UART RX/TX).
 
 ---
 
-## 3. Concurrency & Lifetimes
+## 3. Concurrency & Memory Safety
 
-- **Async Polling**: Cooperative execution tailored for `embassy-executor`. Polling automatically responds to QoS 1 incoming packets with `PUBACK`.
-- **Zero-Allocation Lifetime**: `MqttEvent<'p>` borrows from the internal `rx_buffer`. Compiler ensures events do not outlive the client borrow.
+- **Cooperative Polling**: Designed for `embassy-executor` and `tokio`. Polling handles automated `PUBACK` responses internally.
+- **Zero-Allocation Lifetimes**: `MqttEvent<'p>` borrows directly from `rx_buffer`. Compiler prevents events from outliving the client borrow.
+- **Cancel Safety**: Future drops leave internal state machines consistent; partial packet state resets cleanly on reconnect.
 
 ---
 
-## 4. Testing & Verification
+## 4. Verification Suite
 
-1. **Unit Tests (`tests/engine_tests.rs`)**:
-   - Variable-byte integer encoding/decoding.
-   - Control packet roundtrips (`Publish`, `Subscribe`, `Unsubscribe`, `Connect`, `PubAck`, `ConnAck`, `Disconnect`).
-   - Frame bounds safety and zero-length buffer assertions.
-   - Multi-packet frame iteration via `RawPacketFrameIter`.
-2. **Integration Tests (`tests/client_tests.rs`)**:
-   - Mock transport verifying connection handshakes, QoS 0/1 bursts, auto-`PUBACK`, and stream adapters (20 tests).
-3. **Hardware Examples**:
-   - `examples/esp32_wifi_embassy.rs` (ESP32 Wi-Fi task)
-   - `examples/multipacket_burst.rs` (Batch burst)
-   - `examples/realtime_stream.rs` (Chunk streaming)
-   - `examples/quic_client.rs` (QUIC datagrams)
-   - `examples/esp8266_uart.rs` (UART AT modem)
-   - `examples/smoltcp_ethernet.rs` (`embassy-net` TCP)
-   - `examples/desktop_mock.rs` (Desktop TCP lifecycle)
+| Test Target | Files | Coverage |
+| :--- | :--- | :--- |
+| **Packet Codec & Bounds** | `tests/engine_tests.rs` | Varint encoding, packet roundtrips, malformed bounds safety |
+| **Embedded Client Logic** | `tests/client_tests.rs` | Mock transport, handshake, burst publish, auto-`PUBACK` |
+| **Tokio Host & Driver** | `tests/tokio_client_tests.rs` | Batch publish, stream routing, reconnect recovery, offline queue |
+
+### Example Reference Implementations
+
+- `examples/esp32_wifi_embassy.rs`: Bare-metal ESP32 Wi-Fi task.
+- `examples/realtime_stream.rs`: Zero-RAM sensor chunk publishing.
+- `examples/quic_client.rs`: Unreliable QUIC telemetry datagrams.
+- `examples/tokio_basic_pubsub.rs`: Tokio pub/sub with topic router.
+- `examples/tokio_reconnect_resilience.rs`: Tokio connection loss & journal replay.

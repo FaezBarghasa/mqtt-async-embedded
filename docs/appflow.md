@@ -1,40 +1,40 @@
 # Application Flow & Execution Lifecycle
 
-State machine, asynchronous control flow, packet exchange lifecycles, and session data recovery flows for `mqtt-async-embedded`.
+State machines, packet lifecycles, and session recovery mechanics for `mqtt-async-embedded`.
 
 ---
 
-## 1. High-Level Dual-Engine Architecture Flow
+## 1. Dual-Engine Architecture Flow
 
 ```mermaid
 flowchart TD
-    subgraph Initialization [Client Initialization]
-        A1[Embedded: MqttOptions + MqttTransport] --> B1[Create MqttClient<T, MAX_TOPICS, BUF_SIZE>]
+    subgraph Init [1. Initialization]
+        A1[Embedded: MqttOptions + MqttTransport] --> B1[MqttClient<T, MAX_TOPICS, BUF_SIZE>]
         A2[Tokio: ClientOptions URI] --> B2[Client::connect / Client::new_split]
     end
 
-    subgraph EmbeddedLoop [Embedded no_std Event Loop]
+    subgraph EmbeddedFlow [2. Embedded no_std Loop]
         B1 --> C1[client.connect]
         C1 --> D1[client.poll loop]
-        D1 --> E1[Zero-RAM chunk streaming / Burst batching]
+        D1 --> E1[Chunk Streaming / Burst Batching]
     end
 
-    subgraph TokioLoop [Tokio Background Driver & Recovery]
+    subgraph TokioFlow [3. Tokio Background Driver]
         B2 --> C2[AsyncClient Handle]
-        B2 --> D2[EventLoop Background Driver]
+        B2 --> D2[EventLoop Driver]
         D2 --> E2{Connection Active?}
         E2 -- Yes --> F2[Multiplex Requests & Packets]
-        E2 -- Network Drop --> G2[Data Recovery & Reconnect Backoff]
-        G2 --> H2[Resend Unacked Inflight DUP=true]
-        G2 --> I2[Restore Active Subscriptions]
-        G2 --> J2[Drain Offline Queue Buffer]
+        E2 -- Disconnect --> G2[Reconnect Backoff & Recovery]
+        G2 --> H2[1. Resend In-Flight DUP=true]
+        G2 --> I2[2. Restore Subscriptions]
+        G2 --> J2[3. Drain Offline Queue]
         J2 --> E2
     end
 ```
 
 ---
 
-## 2. Multi-Threaded Data Stream & Recovery Flow
+## 2. Multi-Threaded Data Stream & Recovery Pipeline
 
 ```mermaid
 sequenceDiagram
@@ -48,38 +48,42 @@ sequenceDiagram
 
     App->>Prod: send(payload)
     Prod->>Prod: Atomic fetch_add(seq_id) & timestamp
-    Prod->>Journal: Buffer chunk (sliding window)
+    Prod->>Journal: Buffer chunk into sliding window
     Prod->>EL: ClientRequest::Publish
-    EL->>Broker: PUBLISH (wire chunk)
-    Broker->>EL: Forward PUBLISH to subscribers
+    EL->>Broker: PUBLISH (wire packet)
+    Broker->>EL: Forward PUBLISH to subscriber
     EL->>Cons: TopicRouter::dispatch
-    Cons->>Cons: Check seq_id & Reorder Buffer
-    Cons-->>App: recv_ordered() yields ordered chunk
+    Cons->>Cons: Check seq_id & reorder buffer
+    Cons-->>App: recv_ordered() yields in-order chunk
 
-    Note over EL,Broker: Network Disconnect Occurs
+    Note over EL,Broker: Network Disconnection
     Broker--xEL: Connection Dropped
-    EL->>EL: Enter Reconnect Backoff
-    EL->>Broker: Reconnect & Handshake (CONNACK)
+    EL->>EL: Exponential backoff + jitter
+    EL->>Broker: Reconnect & CONNACK
     Prod->>EL: replay_recovery_journal()
     EL->>Broker: PUBLISH (DUP=true, unacked chunks)
-    Broker->>Cons: Deliver replayed recovery chunks
-    Cons->>Cons: Deduplicate old seq_id & emit missing gaps
+    Broker->>Cons: Deliver replayed chunks
+    Cons->>Cons: Deduplicate old seq_id & fill gaps
 ```
 
 ---
 
-## 3. Core Operational Lifecycles
+## 3. Operational Lifecycles
 
-### 3.1. Reconnection & Data Recovery Engine
-1. **Detection**: Any I/O error or abrupt disconnect triggers `ConnectionStatus::Disconnected`.
-2. **Backoff**: `ReconnectPolicy::compute_delay(attempt)` computes exponential backoff with jitter.
-3. **Transport Reconnection**: Reconnects over configured target (TCP, TLS, QUIC, Unix socket, or Windows Named Pipe).
-4. **Subscription Restoration**: All active subscriptions in `active_subscriptions` map are re-subscribed with broker `SUBSCRIBE` packets.
-5. **In-Flight Retransmission**: Unacknowledged QoS 1 & 2 messages are re-encoded with `dup = true` and flushed to the network.
-6. **Offline Queue Drain**: Messages buffered in the offline queue during the outage are drained according to `DropStrategy`.
+### 3.1. Reconnect & Recovery Sequence
 
-### 3.2. Topic-Filtered Stream Routing
-1. Calling `client.subscribe_stream("sensors/+/telemetry", qos)` registers an `mpsc::Sender<PublishMessage>` in the `TopicRouter` trie.
-2. Inbound packets are matched against the trie nodes in $O(k)$ time where $k$ is the topic depth.
-3. Matching streams receive zero-copy cloned `PublishMessage` handles.
-4. If a subscriber drops its stream, the router detects closed channels and prunes dead nodes automatically.
+1. **Disconnect Event**: Socket error or heartbeat timeout triggers `ConnectionStatus::Disconnected`.
+2. **Backoff Calculation**: `ReconnectPolicy::compute_delay(attempt)` sets next retry interval (exponential + jitter).
+3. **Transport Re-dial**: Reconnects over TCP, TLS, QUIC, Unix socket, or Windows Named Pipe.
+4. **Resubscription**: Replays all active topics in `active_subscriptions` via batch `SUBSCRIBE`.
+5. **In-Flight Retransmit**: Unacknowledged QoS 1 & 2 messages are marked `dup = true` and re-sent immediately.
+6. **Offline Queue Flush**: Messages queued during outage are flushed based on `DropStrategy` (`DropOldest`, `ErrorOnFull`, `Block`).
+
+---
+
+### 3.2. Topic Stream Router
+
+- **Structure**: Trie prefix tree matching exact paths, single-level (`+`), and multi-level (`#`) wildcards.
+- **Lookup Time**: $O(k)$ where $k$ is topic path depth.
+- **Zero-Copy Routing**: Distributes cloned `PublishMessage` handles (`bytes::Bytes`) to matching channels.
+- **Auto-Pruning**: Automatically cleans up closed receiver channels to eliminate memory leaks.
