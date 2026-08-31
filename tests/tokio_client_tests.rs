@@ -12,11 +12,12 @@ use tokio::sync::Mutex;
 use tokio::time;
 
 use mqtt_async_embedded::client::MqttVersion;
-use mqtt_async_embedded::packet::{EncodePacket, QoS};
+use mqtt_async_embedded::packet::{self, EncodePacket, MqttPacket, QoS};
 use mqtt_async_embedded::tokio_client::{
     AsyncClient, Client, ClientOptions, ConnectionStatus, DataRecoveryPolicy, OfflineQueuePolicy,
     PublishMessage, ReconnectPolicy,
 };
+use mqtt_async_embedded::util::RawPacketFrameIter;
 
 /// A lightweight mock MQTT broker running on an ephemeral TCP port for automated integration testing.
 struct MockBroker {
@@ -48,7 +49,7 @@ impl MockBroker {
                     let drop_flag = drop_clone.clone();
 
                     tokio::spawn(async move {
-                        let mut buf = [0u8; 4096];
+                        let mut buf = [0u8; 8192];
                         let mut rx_len = 0;
 
                         loop {
@@ -58,110 +59,70 @@ impl MockBroker {
                             };
                             rx_len += n;
 
-                            let mut cursor = 0;
-                            while cursor < rx_len {
-                                let packet_type = buf[cursor] >> 4;
-                                match packet_type {
-                                    1 => {
-                                        // CONNECT -> Reply CONNACK (0x20, 0x02, 0x00, 0x00)
-                                        let connack = [0x20, 0x02, 0x00, 0x00];
-                                        let _ = socket.write_all(&connack).await;
-                                        let _ = socket.flush().await;
+                            let mut consumed = 0;
+                            {
+                                let iter = RawPacketFrameIter::new(&buf[..rx_len]);
+                                for frame in iter.flatten() {
+                                    consumed += frame.len();
+                                    if let Ok(Some(pkt)) = packet::decode::<()>(frame, MqttVersion::V3) {
+                                        match pkt {
+                                            MqttPacket::Connect(_) => {
+                                                let connack = [0x20, 0x02, 0x00, 0x00];
+                                                let _ = socket.write_all(&connack).await;
+                                                let _ = socket.flush().await;
 
-                                        cursor = rx_len;
+                                                if drop_flag.load(Ordering::SeqCst) {
+                                                    drop_flag.store(false, Ordering::SeqCst);
+                                                    let _ = socket.shutdown().await;
+                                                    return;
+                                                }
+                                            }
+                                            MqttPacket::Publish(p) => {
+                                                pub_sink.lock().await.push(p.topic.to_string());
 
-                                        if drop_flag.load(Ordering::SeqCst) {
-                                            // Simulate abrupt network drop
-                                            drop_flag.store(false, Ordering::SeqCst);
-                                            let _ = socket.shutdown().await;
-                                            return;
+                                                if p.qos == QoS::AtLeastOnce && let Some(pid) = p.packet_id {
+                                                    let mut puback = [0x40, 0x02, 0x00, 0x00];
+                                                    puback[2..4].copy_from_slice(&pid.to_be_bytes());
+                                                    let _ = socket.write_all(&puback).await;
+                                                    let _ = socket.flush().await;
+                                                }
+
+                                                // Echo PUBLISH packet for subscriber testing
+                                                let echo_pkt = mqtt_async_embedded::packet::Publish::new(p.topic, p.payload, QoS::AtMostOnce);
+                                                let mut echo_buf = [0u8; 1024];
+                                                if let Ok(len) = echo_pkt.encode(&mut echo_buf, MqttVersion::V3) {
+                                                    let _ = socket.write_all(&echo_buf[..len]).await;
+                                                    let _ = socket.flush().await;
+                                                }
+                                            }
+                                            MqttPacket::Subscribe(s) => {
+                                                let suback = [0x90, 0x03, (s.packet_id >> 8) as u8, (s.packet_id & 0xFF) as u8, 0x00];
+                                                let _ = socket.write_all(&suback).await;
+                                                let _ = socket.flush().await;
+                                            }
+                                            MqttPacket::Unsubscribe(u) => {
+                                                let unsuback = [0xB0, 0x02, (u.packet_id >> 8) as u8, (u.packet_id & 0xFF) as u8];
+                                                let _ = socket.write_all(&unsuback).await;
+                                                let _ = socket.flush().await;
+                                            }
+                                            MqttPacket::PingReq => {
+                                                let pingresp = [0xD0, 0x00];
+                                                let _ = socket.write_all(&pingresp).await;
+                                                let _ = socket.flush().await;
+                                            }
+                                            MqttPacket::Disconnect(_) => {
+                                                return;
+                                            }
+                                            _ => {}
                                         }
-                                    }
-                                    3 => {
-                                        // PUBLISH
-                                        let qos = (buf[cursor] & 0x06) >> 1;
-                                        let mut pos = cursor + 1;
-                                        let mut rem_len = 0usize;
-                                        let mut mult = 1usize;
-                                        loop {
-                                            if pos >= rx_len { break; }
-                                            let b = buf[pos];
-                                            pos += 1;
-                                            rem_len += ((b & 0x7F) as usize) * mult;
-                                            mult *= 128;
-                                            if (b & 0x80) == 0 { break; }
-                                        }
-
-                                        let topic_len = u16::from_be_bytes([buf[pos], buf[pos + 1]]) as usize;
-                                        pos += 2;
-                                        let topic = String::from_utf8_lossy(&buf[pos..pos + topic_len]).to_string();
-                                        pos += topic_len;
-
-                                        let pid = if qos == 1 {
-                                            let id = u16::from_be_bytes([buf[pos], buf[pos + 1]]);
-                                            pos += 2;
-                                            id
-                                        } else {
-                                            0
-                                        };
-
-                                        let payload = &buf[pos..pos + (rem_len - (pos - cursor - (pos - topic_len - 2)))];
-                                        pub_sink.lock().await.push(topic.clone());
-
-                                        // Echo PUBLISH packet back to the client socket so client topic router receives it
-                                        let echo_pkt = mqtt_async_embedded::packet::Publish::new(&topic, payload, QoS::AtMostOnce);
-                                        let mut echo_buf = [0u8; 1024];
-                                        if let Ok(echo_len) = echo_pkt.encode(&mut echo_buf, MqttVersion::V3) {
-                                            let _ = socket.write_all(&echo_buf[..echo_len]).await;
-                                            let _ = socket.flush().await;
-                                        }
-
-                                        if qos == 1 {
-                                            // Send PUBACK
-                                            let mut puback = [0x40, 0x02, 0x00, 0x00];
-                                            puback[2..4].copy_from_slice(&pid.to_be_bytes());
-                                            let _ = socket.write_all(&puback).await;
-                                            let _ = socket.flush().await;
-                                        }
-
-                                        cursor = rx_len;
-                                    }
-                                    8 => {
-                                        // SUBSCRIBE -> Reply SUBACK (0x90, 0x03, pid_hi, pid_lo, 0x00)
-                                        let pid_hi = buf[cursor + 2];
-                                        let pid_lo = buf[cursor + 3];
-                                        let suback = [0x90, 0x03, pid_hi, pid_lo, 0x00];
-                                        let _ = socket.write_all(&suback).await;
-                                        let _ = socket.flush().await;
-                                        cursor = rx_len;
-                                    }
-                                    10 => {
-                                        // UNSUBSCRIBE -> Reply UNSUBACK
-                                        let pid_hi = buf[cursor + 2];
-                                        let pid_lo = buf[cursor + 3];
-                                        let unsuback = [0xB0, 0x02, pid_hi, pid_lo];
-                                        let _ = socket.write_all(&unsuback).await;
-                                        let _ = socket.flush().await;
-                                        cursor = rx_len;
-                                    }
-                                    12 => {
-                                        // PINGREQ -> Reply PINGRESP (0xD0, 0x00)
-                                        let pingresp = [0xD0, 0x00];
-                                        let _ = socket.write_all(&pingresp).await;
-                                        let _ = socket.flush().await;
-                                        cursor = rx_len;
-                                    }
-                                    14 => {
-                                        // DISCONNECT
-                                        cursor = rx_len;
-                                        break;
-                                    }
-                                    _ => {
-                                        cursor = rx_len;
                                     }
                                 }
                             }
-                            rx_len = 0;
+
+                            if consumed > 0 {
+                                buf.copy_within(consumed..rx_len, 0);
+                                rx_len -= consumed;
+                            }
                         }
                     });
                 }

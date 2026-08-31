@@ -122,3 +122,13 @@ path = "examples/esp32_wifi_embassy.rs"
 [[example]]
 name = "realtime_stream"
 path = "examples/realtime_stream.rs"
+
+[[example]]
+name = "tokio_basic_pubsub"
+required-features = ["tokio-client"]
+path = "examples/tokio_basic_pubsub.rs"
+
+[[example]]
+name = "tokio_reconnect_resilience"
+required-features = ["tokio-client"]
+path = "examples/tokio_reconnect_resilience.rs"

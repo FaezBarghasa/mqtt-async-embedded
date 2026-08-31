@@ -104,6 +104,10 @@ impl EventLoop {
 
             // Drive connection active cycle
             if let Err(err) = self.drive_connection().await {
+                if matches!(err, ClientError::ClientClosed) {
+                    let _ = self.status_tx.send(ConnectionStatus::Stopped);
+                    break;
+                }
                 tracing::warn!("MQTT connection dropped: {err}. Initiating reconnection & data recovery...");
                 self.transport = None;
                 let _ = self.status_tx.send(ConnectionStatus::Disconnected);
