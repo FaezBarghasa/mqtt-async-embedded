@@ -68,12 +68,12 @@ impl Default for ReconnectPolicy {
 }
 
 impl ReconnectPolicy {
-    /// Computes the delay for the given attempt number.
+    /// Computes the delay for the given attempt number (attempt 1 = initial attempt with 0 delay).
     pub fn compute_delay(&self, attempt: usize) -> Duration {
-        if attempt == 0 {
+        if attempt <= 1 {
             return Duration::ZERO;
         }
-        let exp = (attempt - 1).min(10) as i32;
+        let exp = (attempt - 2).min(10) as i32;
         let factor = self.multiplier.powi(exp);
         let computed = self.initial_delay.as_secs_f64() * factor;
         let clamped = computed.min(self.max_delay.as_secs_f64());

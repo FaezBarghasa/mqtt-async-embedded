@@ -5,10 +5,15 @@
 
 use std::boxed::Box;
 use std::format;
-use std::pin::Pin;
-use std::task::{Context, Poll};
 
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+#[cfg(feature = "transport-quic")]
+use std::pin::Pin;
+#[cfg(feature = "transport-quic")]
+use std::task::{Context, Poll};
+#[cfg(feature = "transport-quic")]
+use tokio::io::ReadBuf;
+
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 
 use crate::tokio_client::options::TransportTarget;
@@ -27,7 +32,13 @@ pub trait AsyncTransport: AsyncRead + AsyncWrite {
     }
 }
 
-impl<T: AsyncRead + AsyncWrite> AsyncTransport for T {}
+impl AsyncTransport for TcpStream {}
+
+#[cfg(unix)]
+impl AsyncTransport for tokio::net::UnixStream {}
+
+#[cfg(feature = "tokio-tls")]
+impl AsyncTransport for tokio_rustls::client::TlsStream<TcpStream> {}
 
 #[cfg(feature = "transport-quic")]
 pub struct QuicTransportStream {
@@ -54,18 +65,25 @@ impl AsyncWrite for QuicTransportStream {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<std::io::Result<usize>> {
-        Pin::new(&mut self.send_stream).poll_write(cx, buf)
+        match Pin::new(&mut self.send_stream).poll_write(cx, buf) {
+            Poll::Ready(Ok(n)) => Poll::Ready(Ok(n)),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(std::io::Error::new(std::io::ErrorKind::Other, e))),
+            Poll::Pending => Poll::Pending,
+        }
     }
 
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.send_stream).poll_flush(cx)
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        Poll::Ready(Ok(()))
     }
 
     fn poll_shutdown(
         mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
+        _cx: &mut Context<'_>,
     ) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.send_stream).poll_shutdown(cx)
+        match self.send_stream.finish() {
+            Ok(()) => Poll::Ready(Ok(())),
+            Err(e) => Poll::Ready(Err(std::io::Error::new(std::io::ErrorKind::Other, e))),
+        }
     }
 }
 

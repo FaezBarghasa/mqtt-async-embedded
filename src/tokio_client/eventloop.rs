@@ -26,6 +26,15 @@ use crate::tokio_client::transport::{connect_transport, BoxedTransport};
 use crate::tokio_client::types::{ClientError, ClientRequest, ConnectionStatus, PublishMessage};
 use crate::util::RawPacketFrameIter;
 
+enum IncomingAction {
+    Publish(PublishMessage),
+    PubAck(u16),
+    SubAck(u16),
+    UnsubAck(u16),
+    PingResp,
+    Disconnect,
+}
+
 /// The internal asynchronous event loop managing the socket, MQTT state machine, and session data recovery.
 pub struct EventLoop {
     options: ClientOptions,
@@ -260,10 +269,16 @@ impl EventLoop {
                 "Restoring {} active topic subscriptions...",
                 self.active_subscriptions.len()
             );
-            for (topic, qos) in &self.active_subscriptions {
+            let subs: Vec<(String, QoS)> = self
+                .active_subscriptions
+                .iter()
+                .map(|(t, q)| (t.clone(), *q))
+                .collect();
+
+            for (topic, qos) in subs {
                 let pid = self.get_next_packet_id();
                 let mut sub = Subscribe::new(pid);
-                let _ = sub.add_topic(topic, *qos);
+                let _ = sub.add_topic(&topic, qos);
                 if let Ok(len) = sub.encode(&mut self.tx_buf, self.options.version) {
                     let _ = transport.write_all(&self.tx_buf[..len]).await;
                 }
@@ -304,6 +319,7 @@ impl EventLoop {
                         rx_cursor += n;
 
                         // Parse all full frames received
+                        let mut actions = Vec::new();
                         let mut consumed = 0;
                         {
                             let iter = RawPacketFrameIter::new(&self.rx_buf[..rx_cursor]);
@@ -312,7 +328,36 @@ impl EventLoop {
                                 if let Some(packet) = packet::decode::<()>(frame, self.options.version)
                                     .map_err(|_| ClientError::Protocol(ProtocolError::InvalidResponse))?
                                 {
-                                    self.handle_incoming_packet(&mut transport, packet).await?;
+                                    match packet {
+                                        MqttPacket::Publish(p) => {
+                                            let owned_msg = PublishMessage {
+                                                topic: p.topic.to_string(),
+                                                payload: Bytes::copy_from_slice(p.payload),
+                                                qos: p.qos,
+                                                retain: p.retain,
+                                                dup: p.dup,
+                                                packet_id: p.packet_id,
+                                                user_properties: Vec::new(),
+                                            };
+                                            actions.push(IncomingAction::Publish(owned_msg));
+                                        }
+                                        MqttPacket::PubAck(ack) => {
+                                            actions.push(IncomingAction::PubAck(ack.packet_id));
+                                        }
+                                        MqttPacket::SubAck(suback) => {
+                                            actions.push(IncomingAction::SubAck(suback.packet_id));
+                                        }
+                                        MqttPacket::UnsubAck(unsuback) => {
+                                            actions.push(IncomingAction::UnsubAck(unsuback.packet_id));
+                                        }
+                                        MqttPacket::PingResp => {
+                                            actions.push(IncomingAction::PingResp);
+                                        }
+                                        MqttPacket::Disconnect(_) => {
+                                            actions.push(IncomingAction::Disconnect);
+                                        }
+                                        _ => {}
+                                    }
                                 }
                             }
                         }
@@ -320,6 +365,44 @@ impl EventLoop {
                         if consumed > 0 {
                             self.rx_buf.copy_within(consumed..rx_cursor, 0);
                             rx_cursor -= consumed;
+                        }
+
+                        for action in actions {
+                            match action {
+                                IncomingAction::Publish(owned_msg) => {
+                                    if owned_msg.qos == QoS::AtLeastOnce && let Some(pid) = owned_msg.packet_id {
+                                        let ack = PubAck::new(pid);
+                                        if let Ok(len) = ack.encode(&mut self.tx_buf, self.options.version) {
+                                            transport.write_all(&self.tx_buf[..len]).await?;
+                                            transport.flush().await?;
+                                            self.last_tx = Instant::now();
+                                        }
+                                    }
+                                    self.router.dispatch(&owned_msg);
+                                }
+                                IncomingAction::PubAck(packet_id) => {
+                                    if let Some((_, Some(sender))) = self.inflight_publishes.remove(&packet_id) {
+                                        let _ = sender.send(Ok(()));
+                                    }
+                                }
+                                IncomingAction::SubAck(packet_id) => {
+                                    if let Some(sender) = self.inflight_subscribes.remove(&packet_id) {
+                                        let _ = sender.send(Ok(packet_id));
+                                    }
+                                }
+                                IncomingAction::UnsubAck(packet_id) => {
+                                    if let Some(sender) = self.inflight_unsubscribes.remove(&packet_id) {
+                                        let _ = sender.send(Ok(packet_id));
+                                    }
+                                }
+                                IncomingAction::PingResp => {
+                                    tracing::trace!("MQTT Ping response received");
+                                }
+                                IncomingAction::Disconnect => {
+                                    tracing::info!("MQTT broker initiated disconnect");
+                                    return Err(ClientError::NotConnected);
+                                }
+                            }
                         }
                     }
 
@@ -378,7 +461,7 @@ impl EventLoop {
                 ack_sender,
             } => {
                 let msg = PublishMessage::new(&topic, payload);
-                let mut pub_packet = Publish::new(&topic, &msg.payload, QoS::AtMostOnce);
+                let pub_packet = Publish::new(&topic, &msg.payload, QoS::AtMostOnce);
                 let len = pub_packet
                     .encode(&mut self.tx_buf, self.options.version)
                     .map_err(|_| ClientError::Protocol(ProtocolError::MalformedPacket))?;
@@ -438,76 +521,17 @@ impl EventLoop {
         Ok(())
     }
 
-    /// Handles an incoming MQTT packet parsed from the transport.
-    async fn handle_incoming_packet(
-        &mut self,
-        transport: &mut BoxedTransport,
-        packet: MqttPacket<'_>,
-    ) -> Result<(), ClientError> {
-        match packet {
-            MqttPacket::Publish(p) => {
-                let owned_msg = PublishMessage {
-                    topic: p.topic.to_string(),
-                    payload: Bytes::copy_from_slice(p.payload),
-                    qos: p.qos,
-                    retain: p.retain,
-                    dup: p.dup,
-                    packet_id: p.packet_id,
-                    user_properties: Vec::new(),
-                };
-
-                // Auto PUBACK for QoS 1
-                if p.qos == QoS::AtLeastOnce {
-                    if let Some(pid) = p.packet_id {
-                        let ack = PubAck::new(pid);
-                        let len = ack
-                            .encode(&mut self.tx_buf, self.options.version)
-                            .map_err(|_| ClientError::Protocol(ProtocolError::MalformedPacket))?;
-                        transport.write_all(&self.tx_buf[..len]).await?;
-                        transport.flush().await?;
-                        self.last_tx = Instant::now();
-                    }
-                }
-
-                // Dispatch to topic subscribers
-                self.router.dispatch(&owned_msg);
-            }
-            MqttPacket::PubAck(ack) => {
-                if let Some((_, Some(sender))) = self.inflight_publishes.remove(&ack.packet_id) {
-                    let _ = sender.send(Ok(()));
-                }
-            }
-            MqttPacket::SubAck(suback) => {
-                if let Some(sender) = self.inflight_subscribes.remove(&suback.packet_id) {
-                    let _ = sender.send(Ok(suback.packet_id));
-                }
-            }
-            MqttPacket::UnsubAck(unsuback) => {
-                if let Some(sender) = self.inflight_unsubscribes.remove(&unsuback.packet_id) {
-                    let _ = sender.send(Ok(unsuback.packet_id));
-                }
-            }
-            MqttPacket::PingResp => {
-                tracing::trace!("MQTT Ping response received");
-            }
-            MqttPacket::Disconnect(_) => {
-                tracing::info!("MQTT broker initiated disconnect");
-                return Err(ClientError::NotConnected);
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-
     /// Sends a publish direct or buffers offline if not currently connected.
+    #[allow(dead_code)]
     pub(crate) async fn send_publish(
         &mut self,
         message: PublishMessage,
         ack_sender: Option<oneshot::Sender<Result<(), ClientError>>>,
     ) -> Result<(), ClientError> {
-        if let Some(ref mut transport) = self.transport {
-            self.send_publish_direct(transport, message, ack_sender)
-                .await
+        if let Some(mut transport) = self.transport.take() {
+            let res = self.send_publish_direct(&mut transport, message, ack_sender).await;
+            self.transport = Some(transport);
+            res
         } else {
             // Buffer offline
             if self.options.offline_queue.capacity == 0 {
