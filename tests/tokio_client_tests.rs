@@ -292,3 +292,51 @@ async fn test_tokio_client_reconnect_and_data_recovery() {
     time::sleep(Duration::from_millis(50)).await;
     assert_eq!(broker.received_publishes.lock().await.len(), 1);
 }
+
+#[tokio::test]
+async fn test_tokio_client_multithreaded_datastream_recovery() {
+    let broker = MockBroker::start().await;
+
+    let options = ClientOptions::new("tokio-test-client-6", "127.0.0.1", broker.addr.port());
+    let (client, _handle) = Client::connect(options);
+    wait_for_connected(&client).await;
+
+    let producer = client.create_datastream_producer("telemetry/metrics", QoS::AtMostOnce, 128);
+    let mut consumer = client
+        .subscribe_datastream("telemetry/metrics", QoS::AtMostOnce, 64)
+        .await
+        .expect("Subscribe datastream failed");
+
+    // Spawn multiple threads publishing concurrently to the producer
+    let mut handles = Vec::new();
+    for thread_id in 0..4 {
+        let prod_clone = producer.clone();
+        let handle = tokio::spawn(async move {
+            for i in 0..10 {
+                let payload = format!("Worker {thread_id} - Sample {i}");
+                let _ = prod_clone.send(payload.into_bytes()).await;
+            }
+        });
+        handles.push(handle);
+    }
+
+    for h in handles {
+        h.await.unwrap();
+    }
+
+    // Consumer reads sequenced ordered chunks
+    let mut received_chunks = 0;
+    while let Ok(Ok(Some(_chunk))) = time::timeout(Duration::from_millis(200), consumer.recv_ordered()).await {
+        received_chunks += 1;
+        if received_chunks == 40 {
+            break;
+        }
+    }
+
+    assert_eq!(received_chunks, 40);
+
+    // Test sliding journal replay for data recovery
+    let replayed = producer.replay_recovery_journal().await.unwrap();
+    assert!(replayed >= 40);
+}
+

@@ -175,6 +175,27 @@ impl AsyncClient {
         Ok(TopicSubscription::new(topic_str, stream_rx))
     }
 
+    /// Creates a high-performance, multithreaded data stream producer with sliding journal data recovery.
+    pub fn create_datastream_producer(
+        &self,
+        topic: impl Into<String>,
+        qos: QoS,
+        journal_capacity: usize,
+    ) -> crate::tokio_client::stream::DataStreamProducer {
+        crate::tokio_client::stream::DataStreamProducer::new(self.clone(), topic, qos, journal_capacity)
+    }
+
+    /// Subscribes to a sequenced data stream with out-of-order reassembly and gap recovery.
+    pub async fn subscribe_datastream(
+        &self,
+        topic: impl Into<String>,
+        qos: QoS,
+        reorder_window: usize,
+    ) -> Result<crate::tokio_client::stream::DataStreamConsumer, ClientError> {
+        let sub = self.subscribe_stream(topic, qos).await?;
+        Ok(crate::tokio_client::stream::DataStreamConsumer::new(sub, reorder_window))
+    }
+
     /// Unsubscribes from a topic filter.
     pub async fn unsubscribe(&self, topic: impl Into<String>) -> Result<u16, ClientError> {
         let (resp_tx, resp_rx) = oneshot::channel();
