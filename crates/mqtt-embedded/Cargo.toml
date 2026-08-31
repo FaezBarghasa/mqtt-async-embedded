@@ -1,0 +1,35 @@
+[package]
+name = "mqtt-embedded"
+version = "1.6.0"
+edition = "2024"
+authors = ["Faez Barghasa <faez.barghasa.org@gmail.com>"]
+description = "High-performance, async, zero-allocation no_std MQTT client for microcontrollers and embedded systems."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/FaezBarghasa/mqtt-async-embedded"
+documentation = "https://docs.rs/mqtt-embedded"
+readme = "README.md"
+keywords = ["mqtt", "async", "embedded", "embassy", "no_std"]
+categories = ["embedded", "no-std", "asynchronous", "network-programming"]
+
+[dependencies]
+mqtt-packet = { path = "../mqtt-packet", version = "1.6.0" }
+embedded-hal = "1.0"
+embedded-hal-async = "1.0"
+embedded-io-async = "0.7.0"
+heapless = "0.9"
+embassy-time = "0.5"
+defmt = { version = "1.0", optional = true }
+embassy-net = { version = "0.9.1", optional = true }
+embedded-tls = { version = "0.17", default-features = false, optional = true }
+
+[features]
+default = []
+defmt = ["dep:defmt", "mqtt-packet/defmt", "heapless/defmt"]
+transport-smoltcp = [
+    "dep:embassy-net",
+    "embassy-net/tcp",
+    "embassy-net/proto-ipv4",
+    "embassy-net/medium-ethernet",
+]
+transport-embedded-tls = ["dep:embedded-tls"]
+std = ["embassy-time/std"]

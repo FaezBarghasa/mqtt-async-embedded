@@ -1,0 +1,26 @@
+[package]
+name = "mqtt-packet"
+version = "1.6.0"
+edition = "2024"
+authors = ["Faez Barghasa <faez.barghasa.org@gmail.com>"]
+description = "Zero-allocation, no_std MQTT 3.1.1 and 5.0 packet encoder and decoder engine."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/FaezBarghasa/mqtt-async-embedded"
+documentation = "https://docs.rs/mqtt-packet"
+readme = "README.md"
+keywords = ["mqtt", "packet", "no_std", "embedded", "codec"]
+categories = ["embedded", "no-std", "network-programming", "encoding"]
+
+[dependencies]
+heapless = "0.9"
+defmt = { version = "1.0", optional = true }
+nom = { version = "8", optional = true }
+
+[dev-dependencies]
+proptest = "1.6"
+
+[features]
+default = []
+defmt = ["dep:defmt", "heapless/defmt"]
+nom = ["dep:nom"]
+std = []
