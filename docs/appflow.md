@@ -87,3 +87,13 @@ sequenceDiagram
 - **Lookup Time**: $O(k)$ where $k$ is topic path depth.
 - **Zero-Copy Routing**: Distributes cloned `PublishMessage` handles (`bytes::Bytes`) to matching channels.
 - **Auto-Pruning**: Automatically cleans up closed receiver channels to eliminate memory leaks.
+
+---
+
+### 3.3. Web Server Stream Bridge (Axum & Actix-web)
+
+1. **Broadcast Fanout**: `MqttBroadcastHub` registers a single topic subscription from the broker and fans out to an unbounded number of HTTP / WebSocket client response streams.
+2. **MJPEG Stream Formatter**: `CameraMjpegBridge` takes incoming JPEG frames and prepends multipart boundary headers (`multipart/x-mixed-replace; boundary=frame`), streaming directly to browser `<img>` tags.
+3. **SSE Stream Formatter**: `TelemetrySseBridge` formats incoming telemetry/motion alerts into `data: ...\n\n` event chunks.
+4. **Lag Handling**: If a slow web client drops behind, lagged frames are skipped automatically to maintain real-time sub-millisecond video latency.
+

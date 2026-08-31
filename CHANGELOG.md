@@ -30,8 +30,13 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), follow
 - **MQTT over QUIC & Datagrams**:
   - Stream multiplexing eliminating TCP Head-of-Line blocking.
   - Unreliable zero-handshake datagram telemetry (`client.publish_datagram()`).
+- **Web Server Streaming Bridge (Axum & Actix-web)**:
+  - `MqttBroadcastHub`: Multi-client fanout hub distributing a single MQTT topic feed to thousands of concurrent HTTP / WebSocket / SSE connections.
+  - `CameraMjpegBridge`: Standard `multipart/x-mixed-replace` formatter for direct browser video streaming (`<img>` tags).
+  - `TelemetrySseBridge`: Server-Sent Events (SSE) stream bridge for web dashboards.
+  - Example: `examples/server_camera_web_bridge.rs`.
 - **Examples & Test Suite**:
-  - `examples/tokio_basic_pubsub.rs` and `examples/tokio_reconnect_resilience.rs`.
+  - `examples/tokio_basic_pubsub.rs`, `examples/tokio_reconnect_resilience.rs`, and `examples/server_camera_web_bridge.rs`.
   - Integration test suite in `tests/tokio_client_tests.rs`.
 
 ---

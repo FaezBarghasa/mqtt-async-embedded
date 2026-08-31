@@ -340,3 +340,108 @@ async fn test_tokio_client_multithreaded_datastream_recovery() {
     assert!(replayed >= 40);
 }
 
+#[tokio::test]
+async fn test_tokio_client_web_server_camera_mjpeg_and_sse_bridge() {
+    use futures_util::StreamExt;
+    use mqtt_async_embedded::tokio_client::{CameraMjpegBridge, TelemetrySseBridge};
+
+    let broker = MockBroker::start().await;
+
+    let options = ClientOptions::new("tokio-test-client-web", "127.0.0.1", broker.addr.port());
+    let (client, _handle) = Client::connect(options);
+    wait_for_connected(&client).await;
+
+    // 1. Create a broadcast hub for camera video topic
+    let camera_hub = client
+        .create_broadcast_hub("security/camera/01/mjpeg", QoS::AtMostOnce, 32)
+        .await
+        .expect("Create broadcast hub failed");
+
+    // 2. Create web streaming bridges (simulating Axum/Actix HTTP body handlers)
+    let mut mjpeg_stream = CameraMjpegBridge::new(&camera_hub);
+    let mut sse_stream = TelemetrySseBridge::new(&camera_hub);
+
+    // 3. Publish a simulated JPEG frame from edge camera
+    let fake_jpeg = b"\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xFF\xD9";
+    client
+        .publish("security/camera/01/mjpeg", QoS::AtMostOnce, false, Bytes::from_static(fake_jpeg))
+        .await
+        .unwrap();
+
+    // 4. Verify MJPEG multipart stream output
+    let mjpeg_frame = time::timeout(Duration::from_millis(500), mjpeg_stream.next())
+        .await
+        .expect("Timeout on MJPEG frame")
+        .expect("Some frame")
+        .expect("Ok frame");
+
+    assert!(mjpeg_frame.starts_with(b"--frame\r\nContent-Type: image/jpeg\r\n"));
+    assert!(mjpeg_frame.ends_with(b"\r\n"));
+
+    // 5. Verify SSE stream output
+    let sse_event = time::timeout(Duration::from_millis(500), sse_stream.next())
+        .await
+        .expect("Timeout on SSE event")
+        .expect("Some event")
+        .expect("Ok event");
+
+    assert!(sse_event.starts_with(b"data: "));
+    assert!(sse_event.ends_with(b"\n\n"));
+}
+
+#[tokio::test]
+async fn test_tokio_client_slint_ui_binding_and_camera_stream() {
+    let broker = MockBroker::start().await;
+
+    let options = ClientOptions::new("tokio-test-client-slint", "127.0.0.1", broker.addr.port());
+    let (client, _handle) = Client::connect(options);
+    wait_for_connected(&client).await;
+
+    let received_ui_text = Arc::new(Mutex::new(String::new()));
+    let text_clone = received_ui_text.clone();
+
+    // 1. Bind telemetry string property to simulated Slint UI callback
+    let _text_binding = client
+        .bind_slint_property("slint/dashboard/temperature", QoS::AtMostOnce, move |_topic, val| {
+            let sink = text_clone.clone();
+            tokio::spawn(async move {
+                *sink.lock().await = val;
+            });
+        })
+        .await
+        .expect("Slint property binding failed");
+
+    let received_frame_len = Arc::new(Mutex::new(0usize));
+    let frame_clone = received_frame_len.clone();
+
+    // 2. Bind camera stream to simulated Slint UI image callback
+    let _camera_binding = client
+        .bind_slint_camera("slint/camera/live", QoS::AtMostOnce, move |jpeg_bytes| {
+            let sink = frame_clone.clone();
+            tokio::spawn(async move {
+                *sink.lock().await = jpeg_bytes.len();
+            });
+        })
+        .await
+        .expect("Slint camera binding failed");
+
+    // 3. Publish simulated telemetry and camera frame
+    client
+        .publish("slint/dashboard/temperature", QoS::AtMostOnce, false, "24.6 C")
+        .await
+        .unwrap();
+
+    let fake_jpeg = b"\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xFF\xD9";
+    client
+        .publish("slint/camera/live", QoS::AtMostOnce, false, Bytes::from_static(fake_jpeg))
+        .await
+        .unwrap();
+
+    time::sleep(Duration::from_millis(100)).await;
+
+    assert_eq!(*received_ui_text.lock().await, "24.6 C");
+    assert_eq!(*received_frame_len.lock().await, fake_jpeg.len());
+}
+
+
+

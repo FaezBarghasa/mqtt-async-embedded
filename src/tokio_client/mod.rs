@@ -2,17 +2,19 @@
 //!
 //! A standard (`std`) / `tokio`-based MQTT client designed for high throughput,
 //! multi-threaded data streams, multi-packet batching, zero-copy payload sharing,
-//! session data recovery, topic-filter stream routing, and universal cross-platform
-//! transport support (Linux, Windows, Android, TCP, TLS, QUIC).
+//! session data recovery, topic-filter stream routing, web server bridges (Axum, Actix-web),
+//! Slint UI application bindings, and universal cross-platform transport support (Linux, Windows, Android, TCP, TLS, QUIC).
 
 pub mod client;
 pub mod error;
 pub mod eventloop;
 pub mod options;
 pub mod router;
+pub mod slint_support;
 pub mod stream;
 pub mod transport;
 pub mod types;
+pub mod web;
 
 // Re-export core types for easy access
 pub use client::{AsyncClient, Client};
@@ -22,5 +24,7 @@ pub use options::{
     ClientOptions, DropStrategy, OfflineQueuePolicy, ReconnectPolicy, TransportTarget,
 };
 pub use router::{validate_publish_topic, validate_topic_filter, TopicRouter};
+pub use slint_support::SlintStreamBinding;
 pub use stream::{DataStreamConsumer, DataStreamProducer, StreamChunk};
 pub use types::{ConnectionStatus, DataRecoveryPolicy, PublishMessage, TopicSubscription};
+pub use web::{CameraMjpegBridge, MqttBroadcastHub, TelemetrySseBridge, WebClientStream};

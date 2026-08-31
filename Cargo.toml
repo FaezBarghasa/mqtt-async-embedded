@@ -127,3 +127,13 @@ path = "examples/tokio_basic_pubsub.rs"
 name = "tokio_reconnect_resilience"
 required-features = ["tokio-client"]
 path = "examples/tokio_reconnect_resilience.rs"
+
+[[example]]
+name = "server_camera_web_bridge"
+required-features = ["tokio-client"]
+path = "examples/server_camera_web_bridge.rs"
+
+[[example]]
+name = "slint_dashboard_app"
+required-features = ["tokio-client"]
+path = "examples/slint_dashboard_app.rs"

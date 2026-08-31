@@ -155,12 +155,85 @@ async fn run_mqtt<T: mqtt_async_embedded::MqttTransport>(transport: T) {
 
 ---
 
+## 3. Web Server Security Camera Stream Bridge (Axum & Actix-web)
+
+Integrate MQTT camera video feeds and AI alerts directly into your backend web server:
+
+```rust,no_run
+use bytes::Bytes;
+use futures_util::StreamExt;
+use mqtt_async_embedded::packet::QoS;
+use mqtt_async_embedded::tokio_client::{
+    CameraMjpegBridge, Client, ClientOptions, TelemetrySseBridge,
+};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let (mqtt, _handle) = Client::connect(ClientOptions::new("web-backend", "127.0.0.1", 1883));
+
+    // Create multi-client fanout broadcast hubs (1 MQTT subscription -> 10,000+ web clients)
+    let video_hub = mqtt.create_broadcast_hub("security/camera/01/mjpeg", QoS::AtMostOnce, 64).await?;
+    let event_hub = mqtt.create_broadcast_hub("security/camera/01/events", QoS::AtMostOnce, 64).await?;
+
+    // In Axum / Actix HTTP handlers:
+    // 1. Return live MJPEG video stream:
+    //    let body_stream = CameraMjpegBridge::new(&video_hub);
+    // 2. Return live Server-Sent Events (SSE):
+    //    let sse_stream = TelemetrySseBridge::new(&event_hub);
+
+    Ok(())
+}
+```
+
+---
+
+## 4. Slint GUI Application Integration (`std` & `no_std`)
+
+Seamlessly connect MQTT telemetry and video streams to **Slint UI** components:
+
+### Desktop / Mobile / Embedded Linux (`std`):
+```rust,ignore
+let ui = AppWindow::new()?;
+let weak_ui = ui.as_weak();
+
+// Bind telemetry to UI property
+let _sub = mqtt.bind_slint_property("sensors/temp", QoS::AtLeastOnce, move |_topic, val| {
+    let weak = weak_ui.clone();
+    let _ = weak.upgrade_in_event_loop(move |ui| {
+        ui.set_temperature(val.into());
+    });
+}).await?;
+
+// Bind camera video to Slint Image
+let _cam = mqtt.bind_slint_camera("security/camera/01/mjpeg", QoS::AtMostOnce, move |jpeg| {
+    let weak = weak_ui.clone();
+    let _ = weak.upgrade_in_event_loop(move |ui| {
+        if let Ok(img) = slint::Image::load_from_svg_data(&jpeg) {
+            ui.set_camera_feed(img);
+        }
+    });
+}).await?;
+```
+
+### Bare-Metal Microcontrollers (`no_std`):
+```rust,ignore
+// Zero-allocation polling inside MCU display render tick loop
+loop {
+    if let Ok(Some(MqttEvent::Publish(msg))) = client.poll().await {
+        slint_ui.set_temperature(parse_temp(msg.payload));
+    }
+    slint::platform::update_timers_and_animations();
+}
+```
+
+---
+
 ## Feature Flags
 
 | Flag | Purpose | Target |
 | :--- | :--- | :--- |
 | `std` | Standard library support | Linux, Windows, macOS, Android |
-| `tokio-client` | Standard async client, topic router, recovery engine, data streams | Linux, Windows, Android |
+| `tokio-client` | Standard async client, topic router, recovery engine, data streams, web bridges, Slint support | Linux, Windows, Android |
 | `tokio-tls` | TLS support via `tokio-rustls` and WebPKI roots | Linux, Windows, Android |
 | `tokio-quic` / `transport-quic` | QUIC transport with multiplexed streams & datagrams (`quinn`) | Linux, Windows, Android |
 | `transport-smoltcp` | Bare-metal Ethernet/IP stack via `embassy-net` | Embedded MCUs |
@@ -180,6 +253,12 @@ cargo run --example tokio_basic_pubsub --features tokio-client
 
 # Run Tokio reconnect & recovery resilience example
 cargo run --example tokio_reconnect_resilience --features tokio-client
+
+# Run Web Server Security Camera Stream Bridge example
+cargo run --example server_camera_web_bridge --features tokio-client
+
+# Run Slint GUI Desktop & Embedded Dashboard example
+cargo run --example slint_dashboard_app --features tokio-client
 ```
 
 ---

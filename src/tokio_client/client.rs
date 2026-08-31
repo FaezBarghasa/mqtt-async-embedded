@@ -196,6 +196,48 @@ impl AsyncClient {
         Ok(crate::tokio_client::stream::DataStreamConsumer::new(sub, reorder_window))
     }
 
+    /// Creates a multi-client broadcast hub for web servers (Axum, Actix-web, SSE, MJPEG).
+    pub async fn create_broadcast_hub(
+        &self,
+        topic: impl Into<String>,
+        qos: QoS,
+        broadcast_capacity: usize,
+    ) -> Result<crate::tokio_client::web::MqttBroadcastHub, ClientError> {
+        crate::tokio_client::web::MqttBroadcastHub::new(self, topic, qos, broadcast_capacity).await
+    }
+
+    /// Automatically binds an MQTT topic to a Slint UI property callback.
+    pub async fn bind_slint_property<F>(
+        &self,
+        topic: impl Into<String>,
+        qos: QoS,
+        callback: F,
+    ) -> Result<crate::tokio_client::slint_support::SlintStreamBinding, ClientError>
+    where
+        F: FnMut(String, String) + Send + 'static,
+    {
+        crate::tokio_client::slint_support::SlintStreamBinding::bind_string_property(
+            self, topic, qos, callback,
+        )
+        .await
+    }
+
+    /// Automatically binds an MQTT camera stream to a Slint UI frame rendering callback.
+    pub async fn bind_slint_camera<F>(
+        &self,
+        topic: impl Into<String>,
+        qos: QoS,
+        callback: F,
+    ) -> Result<crate::tokio_client::slint_support::SlintStreamBinding, ClientError>
+    where
+        F: FnMut(bytes::Bytes) + Send + 'static,
+    {
+        crate::tokio_client::slint_support::SlintStreamBinding::bind_camera_frame(
+            self, topic, qos, callback,
+        )
+        .await
+    }
+
     /// Unsubscribes from a topic filter.
     pub async fn unsubscribe(&self, topic: impl Into<String>) -> Result<u16, ClientError> {
         let (resp_tx, resp_rx) = oneshot::channel();

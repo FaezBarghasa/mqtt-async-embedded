@@ -64,3 +64,5 @@ flowchart LR
 | **Linux Drivers** | TCP (`TCP_NODELAY`), TLS (`tokio-rustls`), QUIC (`quinn`), Unix Domain Sockets |
 | **Windows Drivers** | TCP, TLS, QUIC, **Windows Named Pipes** (`pipe://\\.\pipe\mqtt_ipc`) |
 | **Android Drivers** | TCP, TLS, QUIC, **Android Abstract Sockets** (`unix://@android_mqtt_ipc`) |
+| **Web Server Bridges** | **Axum**, **Actix-web**, Server-Sent Events (SSE), Multipart MJPEG Camera Streams |
+
