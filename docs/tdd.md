@@ -22,46 +22,53 @@ Subsystem architecture, transport contracts, web bridges, and test strategy for 
 +---------------------------+               +---------------------------+
 |  MqttTransport Trait      |               | Web & UI Bridges          |
 |  MqttQuicTransport Trait  |               | - CameraMjpegBridge (Axum)|
-+---------------------------+               | - TelemetrySseBridge (SSE)|
-  /           |            \                | - Slint Stream Binding    |
- v            v             v               +---------------------------+
+|  TlsTransport Trait       |               | - TelemetrySseBridge (SSE)|
++---------------------------+               | - Slint Stream Binding    |
+  /           |            \                +---------------------------+
+ v            v             v
 TcpSocket UART Modem  QUIC Stream
 ```
 
 ---
 
-## 2. Core Modules
+## 2. Core Modules & Workspace Crates
 
-### 2.1. Client Module (`src/client.rs` & `src/tokio_client/*`)
+### 2.1. `mqtt-packet`
+- **`DecodePacket` & `EncodePacket` traits**: Zero-allocation encoding and decoding within user-provided slices.
+- **`RawPacketFrameIter`**: Zero-copy packet streaming iterator over continuous byte streams.
+- **`properties`**: MQTT 5.0 properties parsing with safety bounds guards.
+- **Fuzzing & Proptest**: `fuzz/fuzz_targets/fuzz_packet_decode.rs` and `tests/proptest_codec.rs`.
 
+### 2.2. `mqtt-embedded`
 - **`MqttOptions<'a>`**: Broker endpoint, keep-alive, clean session, LWT, credentials.
-- **`MqttClient<'a, T, MAX_TOPICS, BUF_SIZE>` (`no_std`)**:
+- **`MqttClient<'a, T, MAX_TOPICS, BUF_SIZE, MAX_INFLIGHT>` (`no_std`)**:
   - `publish(topic, payload, qos)`: Single packet write.
   - `publish_batch(&[PublishMessage])`: Packs multiple messages into one network write.
-  - `subscribe(&[(&str, QoS)])`: Sends subscription array, returns `packet_id`.
-  - `unsubscribe(&[&str])`: Sends unsubscription array, returns `packet_id`.
+  - `subscribe(&[(&str, QoS)])` / `unsubscribe(&[&str])`: Sends subscription requests.
   - `poll()` / `poll_batch()`: Parses RX buffer, returns zero-copy `MqttEvent<'p>`.
-  - `begin_stream_publish(topic, total_len, qos)`: Direct-to-wire streaming without intermediate buffer allocation.
-- **`Client` / `AsyncClient` (`tokio-client`)**:
-  - `Client::connect(options)`: Spawns background `EventLoop` driver task.
-  - `publish_batch(messages)`: Zero-copy burst publishing via `bytes::Bytes`.
+  - `begin_stream_publish(topic, total_len, qos)`: Direct-to-wire chunked streaming.
+  - `MqttStreamWriter::write_dma_slice(slice)`: Zero-copy DMA buffer streaming.
+- **`InflightQueue`**: Compile-time bounded queue for QoS 1 and QoS 2 in-flight tracking.
+- **`TlsTransport`**: Pluggable MCU TLS abstraction for `embedded-tls` / `mbedtls-sys`.
+
+### 2.3. `mqtt-tokio`
+- **`Client` / `AsyncClient` / `EventLoop`**:
+  - `Client::connect(options)`: Spawns background driver task.
+  - `publish(topic, qos, retain, payload)`: Zero-copy publish via `bytes::Bytes`.
   - `subscribe_stream(topic, qos)`: Topic-filtered stream backed by a prefix trie.
-  - `create_datastream_producer(topic, qos, window)`: Multi-worker producer with atomic ordering and sliding recovery journal.
-  - `create_broadcast_hub(topic, qos, capacity)`: 1-to-N fanout hub for web servers.
-  - `bind_slint_property()` / `bind_slint_camera()`: Cross-thread UI property update binders.
+  - `SmartTransport`: Automatic QUIC to TCP/TLS fallback.
+  - Session Data Recovery: Offline queueing (`DropOldest`, `ErrorOnFull`, `Block`) and in-flight retransmission.
+- **Target OS Compatibility**: Linux, Windows, Android, macOS, and Redox OS (`x86_64-unknown-redox`).
 
----
-
-### 2.2. Web Server Bridges & UI Integrations (`src/tokio_client/web.rs`, `src/tokio_client/slint_support.rs`)
-
+### 2.4. `mqtt-bridges`
 - **`MqttBroadcastHub`**: Subscribes once to MQTT topic and broadcasts to unbounded HTTP/SSE connections via `tokio::sync::broadcast`.
-- **`CameraMjpegBridge`**: Prepares `multipart/x-mixed-replace; boundary=frame` chunks for streaming directly into standard HTML `<img>` elements.
+- **`CameraMjpegBridge`**: Prepares `multipart/x-mixed-replace; boundary=frame` chunks for streaming directly into HTML `<img>` elements.
 - **`TelemetrySseBridge`**: Formats MQTT payloads into standard SSE lines (`data: <payload>\n\n`).
 - **`SlintStreamBinding`**: Dispatches incoming MQTT payloads to Slint UI event loops safely across thread boundaries.
 
 ---
 
-### 2.3. Transport Abstraction (`src/transport.rs`)
+## 3. Transport Abstraction
 
 ```rust
 pub trait MqttTransport {
@@ -69,6 +76,10 @@ pub trait MqttTransport {
     async fn send(&mut self, buf: &[u8]) -> Result<(), Self::Error>;
     async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error>;
     async fn send_vectored(&mut self, bufs: &[&[u8]]) -> Result<(), Self::Error>;
+}
+
+pub trait TlsTransport: MqttTransport {
+    fn is_handshake_complete(&self) -> bool;
 }
 
 pub trait MqttQuicTransport {
@@ -85,24 +96,22 @@ pub trait MqttQuicTransport {
 
 ---
 
-## 3. Concurrency & Memory Safety
-
-- **Cooperative Polling**: Tailored for `embassy-executor` and `tokio`. Automatically handles incoming `PUBACK`.
-- **Zero-Allocation Lifetimes**: `MqttEvent<'p>` borrows directly from `rx_buffer`. Compiler ensures events never outlive the client.
-- **Cancel Safety**: Future drops maintain consistent state; partial packet buffers reset cleanly on reconnect.
-
----
-
 ## 4. Verification Suite
 
 | Test Target | Files | Coverage |
 | :--- | :--- | :--- |
-| **Packet Codec & Bounds** | `tests/engine_tests.rs` | Varint encoding, packet roundtrips, malformed bounds safety |
-| **Embedded Client Logic** | `tests/client_tests.rs` | Mock transport, handshake, burst publish, auto-`PUBACK` |
-| **Tokio Host & Driver** | `tests/tokio_client_tests.rs` | Batch publish, stream routing, reconnect recovery, offline queue |
+| **Packet Codec & Bounds** | `tests/engine_tests.rs`, `crates/mqtt-packet/tests/proptest_codec.rs` | Varint encoding, packet roundtrips, malformed bounds safety, random bytes fuzzing |
+| **Fuzzing Harness** | `fuzz/fuzz_targets/fuzz_packet_decode.rs` | `libfuzzer-sys` continuous decoder fuzzing for v3.1.1 & v5 |
+| **Embedded Client Logic** | `tests/client_tests.rs` | Mock transport, handshake, burst publish, auto-`PUBACK`, zero-copy DMA streaming |
+| **Tokio Host & Driver** | `tests/tokio_client_tests.rs` | Batch publish, stream routing, reconnect recovery, offline queue, Slint binding |
+| **Performance Benchmarks**| `benches/benches/codec_benchmarks.rs` | Criterion throughput benchmarks for encoding, decoding, and varints |
 
-### Example Reference Implementations
+### Reference Examples
 
+- `examples/stm32h7_embassy_mqtt.rs`: Bare-metal STM32H7 DMA ADC stream publishing with Embassy.
+- `examples/esp32c3_uart_mqtt.rs`: ESP32-C3 / RISC-V UART modem serial transport.
+- `examples/redox_daemon.rs`: Redox OS microkernel gateway background daemon.
+- `examples/slint_dashboard.rs`: Slint UI property & live camera stream binding.
 - `examples/esp32_wifi_embassy.rs`: Bare-metal ESP32 Wi-Fi task.
 - `examples/realtime_stream.rs`: Zero-RAM sensor chunk publishing.
 - `examples/quic_client.rs`: Unreliable QUIC telemetry datagrams.
