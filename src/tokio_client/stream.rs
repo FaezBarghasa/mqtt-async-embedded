@@ -1,10 +1,16 @@
-//! # High-Performance Multi-Threaded Data Streams and Session Recovery
+//! # High-Performance Universal Multi-Threaded Sensor & Media Data Streams
 //!
-//! Provides lock-free / low-contention multithreaded data stream publishers and consumers,
-//! automatic sequence tracking, gap detection, out-of-order chunk reassembly, and
-//! automated data recovery journals.
+//! Provides lock-free / low-contention multithreaded streaming engines supporting
+//! **all sensor and media types**:
+//! - **High-Frequency Time-Series Metrics**: Accelerometer, Gyroscope, IMU, Current/Voltage, Vibration (f32/f64).
+//! - **Binary Sensor Buffers**: CAN bus frames, Modbus RTU, SPI DMA packets, raw binary structs.
+//! - **Audio Streams**: Multi-channel PCM audio chunks, Opus frames.
+//! - **Camera & Vision Feeds**: JPEG, PNG, H.264 video NALUs, thermal vision arrays.
+//! - **Structured Metadata**: JSON, CBOR, Protobuf, string telemetry.
+//! - **Automated Session Data Recovery**: Sliding recovery journals, sequence tracking, and out-of-order reassembly.
 
 use std::collections::{BTreeMap, VecDeque};
+use std::format;
 use std::string::{String, ToString};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -16,6 +22,163 @@ use tokio::sync::RwLock;
 use crate::packet::QoS;
 use crate::tokio_client::client::AsyncClient;
 use crate::tokio_client::types::{ClientError, PublishMessage, TopicSubscription};
+
+/// Universal sensor and media payload types supported by the stream engine.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SensorDataType {
+    /// Arbitrary raw binary data (e.g. CAN bus, Modbus, SPI DMA packets, binary telemetry structs).
+    Raw(Bytes),
+    /// High-frequency multi-axis floating point time-series (e.g. IMU $[x, y, z]$, vibration, power).
+    TimeSeries(std::vec::Vec<f64>),
+    /// 32-bit float time-series array for high-rate DSP telemetry.
+    TimeSeriesF32(std::vec::Vec<f32>),
+    /// Structured JSON text or state events.
+    Json(String),
+    /// Audio stream chunk (e.g. PCM 16-bit, AAC, Opus).
+    AudioPcm {
+        sample_rate: u32,
+        channels: u8,
+        data: Bytes,
+    },
+    /// Image or vision frame (e.g. JPEG, PNG, thermal heatmap, H.264 NAL).
+    ImageFrame {
+        mime: String,
+        data: Bytes,
+    },
+}
+
+impl SensorDataType {
+    /// Type discriminator tag.
+    const TAG_RAW: u8 = 0x01;
+    const TAG_TIMESERIES_F64: u8 = 0x02;
+    const TAG_TIMESERIES_F32: u8 = 0x03;
+    const TAG_JSON: u8 = 0x04;
+    const TAG_AUDIO_PCM: u8 = 0x05;
+    const TAG_IMAGE_FRAME: u8 = 0x06;
+
+    /// Serializes the typed sensor data into an optimized zero-copy binary wire payload.
+    pub fn encode(&self) -> Bytes {
+        match self {
+            Self::Raw(bytes) => {
+                let mut buf = BytesMut::with_capacity(1 + bytes.len());
+                buf.put_u8(Self::TAG_RAW);
+                buf.put_slice(bytes);
+                buf.freeze()
+            }
+            Self::TimeSeries(values) => {
+                let mut buf = BytesMut::with_capacity(1 + 2 + values.len() * 8);
+                buf.put_u8(Self::TAG_TIMESERIES_F64);
+                buf.put_u16(values.len() as u16);
+                for &v in values {
+                    buf.put_f64(v);
+                }
+                buf.freeze()
+            }
+            Self::TimeSeriesF32(values) => {
+                let mut buf = BytesMut::with_capacity(1 + 2 + values.len() * 4);
+                buf.put_u8(Self::TAG_TIMESERIES_F32);
+                buf.put_u16(values.len() as u16);
+                for &v in values {
+                    buf.put_f32(v);
+                }
+                buf.freeze()
+            }
+            Self::Json(json) => {
+                let bytes = json.as_bytes();
+                let mut buf = BytesMut::with_capacity(1 + bytes.len());
+                buf.put_u8(Self::TAG_JSON);
+                buf.put_slice(bytes);
+                buf.freeze()
+            }
+            Self::AudioPcm {
+                sample_rate,
+                channels,
+                data,
+            } => {
+                let mut buf = BytesMut::with_capacity(1 + 4 + 1 + data.len());
+                buf.put_u8(Self::TAG_AUDIO_PCM);
+                buf.put_u32(*sample_rate);
+                buf.put_u8(*channels);
+                buf.put_slice(data);
+                buf.freeze()
+            }
+            Self::ImageFrame { mime, data } => {
+                let mime_bytes = mime.as_bytes();
+                let mut buf = BytesMut::with_capacity(1 + 1 + mime_bytes.len() + data.len());
+                buf.put_u8(Self::TAG_IMAGE_FRAME);
+                buf.put_u8(mime_bytes.len() as u8);
+                buf.put_slice(mime_bytes);
+                buf.put_slice(data);
+                buf.freeze()
+            }
+        }
+    }
+
+    /// Deserializes a binary payload into a typed sensor structure.
+    pub fn decode(mut payload: Bytes) -> Self {
+        if payload.is_empty() {
+            return Self::Raw(payload);
+        }
+
+        let tag = payload.get_u8();
+        match tag {
+            Self::TAG_TIMESERIES_F64 => {
+                if payload.len() >= 2 {
+                    let count = payload.get_u16() as usize;
+                    if payload.len() >= count * 8 {
+                        let mut vals = std::vec::Vec::with_capacity(count);
+                        for _ in 0..count {
+                            vals.push(payload.get_f64());
+                        }
+                        return Self::TimeSeries(vals);
+                    }
+                }
+                Self::Raw(payload)
+            }
+            Self::TAG_TIMESERIES_F32 => {
+                if payload.len() >= 2 {
+                    let count = payload.get_u16() as usize;
+                    if payload.len() >= count * 4 {
+                        let mut vals = std::vec::Vec::with_capacity(count);
+                        for _ in 0..count {
+                            vals.push(payload.get_f32());
+                        }
+                        return Self::TimeSeriesF32(vals);
+                    }
+                }
+                Self::Raw(payload)
+            }
+            Self::TAG_JSON => {
+                let s = String::from_utf8_lossy(&payload).to_string();
+                Self::Json(s)
+            }
+            Self::TAG_AUDIO_PCM => {
+                if payload.len() >= 5 {
+                    let sample_rate = payload.get_u32();
+                    let channels = payload.get_u8();
+                    return Self::AudioPcm {
+                        sample_rate,
+                        channels,
+                        data: payload,
+                    };
+                }
+                Self::Raw(payload)
+            }
+            Self::TAG_IMAGE_FRAME => {
+                if !payload.is_empty() {
+                    let mime_len = payload.get_u8() as usize;
+                    if payload.len() >= mime_len {
+                        let mime = String::from_utf8_lossy(&payload[..mime_len]).to_string();
+                        payload.advance(mime_len);
+                        return Self::ImageFrame { mime, data: payload };
+                    }
+                }
+                Self::Raw(payload)
+            }
+            _ => Self::Raw(payload),
+        }
+    }
+}
 
 /// A sequenced data stream chunk with microsecond timestamps for high-frequency telemetry.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,6 +227,11 @@ impl StreamChunk {
             is_recovery: false,
         })
     }
+
+    /// Decodes the payload into a typed sensor data variant.
+    pub fn to_sensor_data(&self) -> SensorDataType {
+        SensorDataType::decode(self.payload.clone())
+    }
 }
 
 /// A thread-safe, cloneable multi-threaded data stream producer with automated recovery journal.
@@ -90,7 +258,7 @@ impl DataStreamProducer {
         }
     }
 
-    /// Streams a data payload concurrently from any worker thread with monotonic sequence ordering.
+    /// Streams a raw data payload concurrently from any worker thread with monotonic sequence ordering.
     pub async fn send(&self, payload: impl Into<Bytes>) -> Result<u64, ClientError> {
         let seq = self.sequence.fetch_add(1, Ordering::SeqCst);
         let now = SystemTime::now()
@@ -121,6 +289,43 @@ impl DataStreamProducer {
             .await?;
 
         Ok(seq)
+    }
+
+    /// Streams a high-frequency time-series float array (e.g. IMU [x, y, z], power, vibration).
+    pub async fn send_timeseries(&self, values: &[f64]) -> Result<u64, ClientError> {
+        let typed = SensorDataType::TimeSeries(values.to_vec());
+        self.send(typed.encode()).await
+    }
+
+    /// Streams a high-frequency 32-bit float time-series array.
+    pub async fn send_timeseries_f32(&self, values: &[f32]) -> Result<u64, ClientError> {
+        let typed = SensorDataType::TimeSeriesF32(values.to_vec());
+        self.send(typed.encode()).await
+    }
+
+    /// Streams structured JSON text telemetry.
+    pub async fn send_json(&self, json: impl Into<String>) -> Result<u64, ClientError> {
+        let typed = SensorDataType::Json(json.into());
+        self.send(typed.encode()).await
+    }
+
+    /// Streams audio PCM samples.
+    pub async fn send_audio(&self, sample_rate: u32, channels: u8, pcm_data: impl Into<Bytes>) -> Result<u64, ClientError> {
+        let typed = SensorDataType::AudioPcm {
+            sample_rate,
+            channels,
+            data: pcm_data.into(),
+        };
+        self.send(typed.encode()).await
+    }
+
+    /// Streams camera, thermal, or vision image frames.
+    pub async fn send_image(&self, mime: impl Into<String>, image_data: impl Into<Bytes>) -> Result<u64, ClientError> {
+        let typed = SensorDataType::ImageFrame {
+            mime: mime.into(),
+            data: image_data.into(),
+        };
+        self.send(typed.encode()).await
     }
 
     /// Flushes and retransmits all journaled chunks as part of a session data recovery replay.
@@ -208,6 +413,16 @@ impl DataStreamConsumer {
 
         // Channel closed
         Ok(None)
+    }
+
+    /// Receives the next in-order typed sensor payload.
+    pub async fn recv_sensor_data(&mut self) -> Result<Option<(u64, SensorDataType)>, ClientError> {
+        if let Some(chunk) = self.recv_ordered().await? {
+            let data = chunk.to_sensor_data();
+            Ok(Some((chunk.seq_id, data)))
+        } else {
+            Ok(None)
+        }
     }
 
     /// The topic filter of the underlying stream subscription.

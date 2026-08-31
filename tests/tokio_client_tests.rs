@@ -443,5 +443,121 @@ async fn test_tokio_client_slint_ui_binding_and_camera_stream() {
     assert_eq!(*received_frame_len.lock().await, fake_jpeg.len());
 }
 
+#[tokio::test]
+async fn test_tokio_client_universal_all_sensor_data_types_multithreaded() {
+    use mqtt_async_embedded::tokio_client::SensorDataType;
+
+    let broker = MockBroker::start().await;
+
+    let options = ClientOptions::new("tokio-test-client-sensors", "127.0.0.1", broker.addr.port());
+    let (client, _handle) = Client::connect(options);
+    wait_for_connected(&client).await;
+
+    let producer = client.create_datastream_producer("sensors/all_types/stream", QoS::AtMostOnce, 256);
+    let mut consumer = client
+        .subscribe_datastream("sensors/all_types/stream", QoS::AtMostOnce, 128)
+        .await
+        .expect("Subscribe datastream failed");
+
+    // 1. Thread 1: High-frequency IMU 6-axis accelerometer & gyroscope time-series
+    let prod_imu = producer.clone();
+    let imu_task = tokio::spawn(async move {
+        for _ in 0..10 {
+            // [acc_x, acc_y, acc_z, gyro_x, gyro_y, gyro_z]
+            let sample = [0.01, 9.81, -0.05, 0.002, -0.001, 0.04];
+            let _ = prod_imu.send_timeseries(&sample).await;
+        }
+    });
+
+    // 2. Thread 2: Binary raw CAN bus telemetry frames
+    let prod_can = producer.clone();
+    let can_task = tokio::spawn(async move {
+        for i in 0..10 {
+            let can_frame = [0x00, 0x01, 0x07, 0xE8, i, 0xAA, 0x55, 0xFF];
+            let _ = prod_can.send(Bytes::copy_from_slice(&can_frame)).await;
+        }
+    });
+
+    // 3. Thread 3: Microphone audio PCM samples
+    let prod_audio = producer.clone();
+    let audio_task = tokio::spawn(async move {
+        for _ in 0..10 {
+            let pcm_chunk = vec![0u8; 128]; // 16kHz 16-bit audio
+            let _ = prod_audio.send_audio(16000, 1, pcm_chunk).await;
+        }
+    });
+
+    // 4. Thread 4: Vision / camera thermal frame
+    let prod_vision = producer.clone();
+    let vision_task = tokio::spawn(async move {
+        for _ in 0..10 {
+            let jpeg_data = b"\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xFF\xD9";
+            let _ = prod_vision.send_image("image/jpeg", Bytes::from_static(jpeg_data)).await;
+        }
+    });
+
+    // 5. Thread 5: Diagnostic JSON metadata
+    let prod_json = producer.clone();
+    let json_task = tokio::spawn(async move {
+        for i in 0..10 {
+            let json_str = format!(r#"{{"sensor_id":"engine_temp","status":"nominal","idx":{i}}}"#);
+            let _ = prod_json.send_json(json_str).await;
+        }
+    });
+
+    // Await all producer worker tasks (50 total messages sent concurrently)
+    let _ = tokio::join!(imu_task, can_task, audio_task, vision_task, json_task);
+
+    // Consume typed sensor stream and verify decoding across all types
+    let mut total_received = 0;
+    let mut imu_count = 0;
+    let mut audio_count = 0;
+    let mut vision_count = 0;
+    let mut json_count = 0;
+    let mut raw_count = 0;
+
+    while let Ok(Ok(Some((_seq, sensor_data)))) = time::timeout(Duration::from_millis(200), consumer.recv_sensor_data()).await {
+        total_received += 1;
+        match sensor_data {
+            SensorDataType::TimeSeries(vals) => {
+                assert_eq!(vals.len(), 6);
+                imu_count += 1;
+            }
+            SensorDataType::AudioPcm { sample_rate, channels, data } => {
+                assert_eq!(sample_rate, 16000);
+                assert_eq!(channels, 1);
+                assert_eq!(data.len(), 128);
+                audio_count += 1;
+            }
+            SensorDataType::ImageFrame { mime, data } => {
+                assert_eq!(mime, "image/jpeg");
+                assert!(!data.is_empty());
+                vision_count += 1;
+            }
+            SensorDataType::Json(s) => {
+                assert!(s.contains("engine_temp"));
+                json_count += 1;
+            }
+            SensorDataType::Raw(bytes) => {
+                assert_eq!(bytes.len(), 8);
+                raw_count += 1;
+            }
+            _ => {}
+        }
+
+        if total_received == 50 {
+            break;
+        }
+    }
+
+    assert_eq!(total_received, 50);
+    assert_eq!(imu_count, 10);
+    assert_eq!(raw_count, 10);
+    assert_eq!(audio_count, 10);
+    assert_eq!(vision_count, 10);
+    assert_eq!(json_count, 10);
+}
+
+
 
 
