@@ -11,8 +11,8 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::string::{String, ToString};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
@@ -40,10 +40,7 @@ pub enum SensorDataType {
         data: Bytes,
     },
     /// Image or vision frame (e.g. JPEG, PNG, thermal heatmap, H.264 NAL).
-    ImageFrame {
-        mime: String,
-        data: Bytes,
-    },
+    ImageFrame { mime: String, data: Bytes },
 }
 
 impl SensorDataType {
@@ -248,7 +245,12 @@ pub struct DataStreamProducer {
 
 impl DataStreamProducer {
     /// Creates a new high-performance multi-threaded data stream producer.
-    pub fn new(client: AsyncClient, topic: impl Into<String>, qos: QoS, journal_capacity: usize) -> Self {
+    pub fn new(
+        client: AsyncClient,
+        topic: impl Into<String>,
+        qos: QoS,
+        journal_capacity: usize,
+    ) -> Self {
         Self {
             topic: Arc::from(topic.into()),
             client,
@@ -317,7 +319,12 @@ impl DataStreamProducer {
     }
 
     /// Streams audio PCM samples.
-    pub async fn send_audio(&self, sample_rate: u32, channels: u8, pcm_data: impl Into<Bytes>) -> Result<u64, ClientError> {
+    pub async fn send_audio(
+        &self,
+        sample_rate: u32,
+        channels: u8,
+        pcm_data: impl Into<Bytes>,
+    ) -> Result<u64, ClientError> {
         let typed = SensorDataType::AudioPcm {
             sample_rate,
             channels,
@@ -327,7 +334,11 @@ impl DataStreamProducer {
     }
 
     /// Streams camera, thermal, or vision image frames.
-    pub async fn send_image(&self, mime: impl Into<String>, image_data: impl Into<Bytes>) -> Result<u64, ClientError> {
+    pub async fn send_image(
+        &self,
+        mime: impl Into<String>,
+        image_data: impl Into<Bytes>,
+    ) -> Result<u64, ClientError> {
         let typed = SensorDataType::ImageFrame {
             mime: mime.into(),
             data: image_data.into(),

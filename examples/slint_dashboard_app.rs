@@ -10,10 +10,10 @@
 //! ### 2. In `no_std` Bare-Metal MCUs (ESP32 / STM32):
 //! - Polling `client.poll().await` inside MCU display tick loop and directly updating Slint properties.
 
-use std::time::Duration;
 use bytes::Bytes;
 use mqtt_async_embedded::packet::QoS;
 use mqtt_async_embedded::tokio_client::{Client, ClientOptions};
+use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -40,9 +40,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //   }).await?;
 
     let _telemetry_binding = mqtt
-        .bind_slint_property("sensors/livingroom/temperature", QoS::AtLeastOnce, |topic, value| {
-            println!(" [Slint UI EventLoop] Update UI Property -> {topic}: {value}");
-        })
+        .bind_slint_property(
+            "sensors/livingroom/temperature",
+            QoS::AtLeastOnce,
+            |topic, value| {
+                println!(" [Slint UI EventLoop] Update UI Property -> {topic}: {value}");
+            },
+        )
         .await?;
 
     // 3. Bind live security camera feed directly to Slint UI Image property
@@ -59,18 +63,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let _camera_binding = mqtt
         .bind_slint_camera("security/camera/01/mjpeg", QoS::AtMostOnce, |frame_bytes| {
-            println!(" [Slint UI EventLoop] Render new camera frame ({} bytes)", frame_bytes.len());
+            println!(
+                " [Slint UI EventLoop] Render new camera frame ({} bytes)",
+                frame_bytes.len()
+            );
         })
         .await?;
 
     // 4. Simulate edge publishers
     let pub_client = mqtt.clone();
     tokio::spawn(async move {
-        let fake_jpeg = b"\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xFF\xD9";
+        let fake_jpeg =
+            b"\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xFF\xD9";
         for i in 1..=3 {
             let temp_str = format!("{}.5 C", 21 + i);
-            let _ = pub_client.publish("sensors/livingroom/temperature", QoS::AtMostOnce, false, temp_str).await;
-            let _ = pub_client.publish("security/camera/01/mjpeg", QoS::AtMostOnce, false, Bytes::from_static(fake_jpeg)).await;
+            let _ = pub_client
+                .publish(
+                    "sensors/livingroom/temperature",
+                    QoS::AtMostOnce,
+                    false,
+                    temp_str,
+                )
+                .await;
+            let _ = pub_client
+                .publish(
+                    "security/camera/01/mjpeg",
+                    QoS::AtMostOnce,
+                    false,
+                    Bytes::from_static(fake_jpeg),
+                )
+                .await;
             tokio::time::sleep(Duration::from_millis(150)).await;
         }
     });

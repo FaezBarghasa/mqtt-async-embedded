@@ -89,10 +89,18 @@ pub enum TransportTarget {
     Tcp { host: String, port: u16 },
     /// TLS encrypted TCP socket via Rustls (Linux, Windows, Android).
     #[cfg(feature = "tokio-tls")]
-    Tls { host: String, port: u16, server_name: String },
+    Tls {
+        host: String,
+        port: u16,
+        server_name: String,
+    },
     /// MQTT over QUIC / H3 transport with multiplexed streams and datagrams (Linux, Windows, Android).
     #[cfg(feature = "transport-quic")]
-    Quic { host: String, port: u16, server_name: String },
+    Quic {
+        host: String,
+        port: u16,
+        server_name: String,
+    },
     /// POSIX Unix Domain Sockets or Android Abstract Namespace Sockets (Linux, Android).
     Unix { path: String },
     /// Windows Named Pipes for high-speed local IPC (Windows).
@@ -167,7 +175,9 @@ impl ClientOptions {
             #[cfg(not(feature = "tokio-tls"))]
             {
                 let _ = rest;
-                Err(ClientError::Tls("Feature 'tokio-tls' is required for mqtts:// URIs".into()))
+                Err(ClientError::Tls(
+                    "Feature 'tokio-tls' is required for mqtts:// URIs".into(),
+                ))
             }
         } else if let Some(rest) = uri.strip_prefix("quic://") {
             #[cfg(feature = "transport-quic")]
@@ -184,7 +194,9 @@ impl ClientOptions {
             #[cfg(not(feature = "transport-quic"))]
             {
                 let _ = rest;
-                Err(ClientError::Quic("Feature 'transport-quic' is required for quic:// URIs".into()))
+                Err(ClientError::Quic(
+                    "Feature 'transport-quic' is required for quic:// URIs".into(),
+                ))
             }
         } else if let Some(path) = uri.strip_prefix("unix://") {
             let mut opts = Self::new(client_id, "localhost", 0);

@@ -1,8 +1,8 @@
 #![cfg(feature = "tokio-client")]
 
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -64,7 +64,9 @@ impl MockBroker {
                                 let iter = RawPacketFrameIter::new(&buf[..rx_len]);
                                 for frame in iter.flatten() {
                                     consumed += frame.len();
-                                    if let Ok(Some(pkt)) = packet::decode::<()>(frame, MqttVersion::V3) {
+                                    if let Ok(Some(pkt)) =
+                                        packet::decode::<()>(frame, MqttVersion::V3)
+                                    {
                                         match pkt {
                                             MqttPacket::Connect(_) => {
                                                 let connack = [0x20, 0x02, 0x00, 0x00];
@@ -80,28 +82,50 @@ impl MockBroker {
                                             MqttPacket::Publish(p) => {
                                                 pub_sink.lock().await.push(p.topic.to_string());
 
-                                                if p.qos == QoS::AtLeastOnce && let Some(pid) = p.packet_id {
+                                                if p.qos == QoS::AtLeastOnce
+                                                    && let Some(pid) = p.packet_id
+                                                {
                                                     let mut puback = [0x40, 0x02, 0x00, 0x00];
-                                                    puback[2..4].copy_from_slice(&pid.to_be_bytes());
+                                                    puback[2..4]
+                                                        .copy_from_slice(&pid.to_be_bytes());
                                                     let _ = socket.write_all(&puback).await;
                                                     let _ = socket.flush().await;
                                                 }
 
                                                 // Echo PUBLISH packet for subscriber testing
-                                                let echo_pkt = mqtt_async_embedded::packet::Publish::new(p.topic, p.payload, QoS::AtMostOnce);
+                                                let echo_pkt =
+                                                    mqtt_async_embedded::packet::Publish::new(
+                                                        p.topic,
+                                                        p.payload,
+                                                        QoS::AtMostOnce,
+                                                    );
                                                 let mut echo_buf = [0u8; 1024];
-                                                if let Ok(len) = echo_pkt.encode(&mut echo_buf, MqttVersion::V3) {
-                                                    let _ = socket.write_all(&echo_buf[..len]).await;
+                                                if let Ok(len) =
+                                                    echo_pkt.encode(&mut echo_buf, MqttVersion::V3)
+                                                {
+                                                    let _ =
+                                                        socket.write_all(&echo_buf[..len]).await;
                                                     let _ = socket.flush().await;
                                                 }
                                             }
                                             MqttPacket::Subscribe(s) => {
-                                                let suback = [0x90, 0x03, (s.packet_id >> 8) as u8, (s.packet_id & 0xFF) as u8, 0x00];
+                                                let suback = [
+                                                    0x90,
+                                                    0x03,
+                                                    (s.packet_id >> 8) as u8,
+                                                    (s.packet_id & 0xFF) as u8,
+                                                    0x00,
+                                                ];
                                                 let _ = socket.write_all(&suback).await;
                                                 let _ = socket.flush().await;
                                             }
                                             MqttPacket::Unsubscribe(u) => {
-                                                let unsuback = [0xB0, 0x02, (u.packet_id >> 8) as u8, (u.packet_id & 0xFF) as u8];
+                                                let unsuback = [
+                                                    0xB0,
+                                                    0x02,
+                                                    (u.packet_id >> 8) as u8,
+                                                    (u.packet_id & 0xFF) as u8,
+                                                ];
                                                 let _ = socket.write_all(&unsuback).await;
                                                 let _ = socket.flush().await;
                                             }
@@ -168,7 +192,10 @@ async fn test_tokio_client_connect_and_disconnect() {
     wait_for_connected(&client).await;
     assert!(client.is_connected());
 
-    client.disconnect().await.expect("Disconnect should succeed");
+    client
+        .disconnect()
+        .await
+        .expect("Disconnect should succeed");
     time::sleep(Duration::from_millis(50)).await;
     assert!(!client.is_connected());
 }
@@ -281,7 +308,10 @@ async fn test_tokio_client_reconnect_and_data_recovery() {
     assert!(client.is_connected());
 
     // Register active subscription
-    let _ = client.subscribe("fleet/+/telemetry", QoS::AtMostOnce).await.unwrap();
+    let _ = client
+        .subscribe("fleet/+/telemetry", QoS::AtMostOnce)
+        .await
+        .unwrap();
 
     // Publish message
     client
@@ -326,7 +356,9 @@ async fn test_tokio_client_multithreaded_datastream_recovery() {
 
     // Consumer reads sequenced ordered chunks
     let mut received_chunks = 0;
-    while let Ok(Ok(Some(_chunk))) = time::timeout(Duration::from_millis(200), consumer.recv_ordered()).await {
+    while let Ok(Ok(Some(_chunk))) =
+        time::timeout(Duration::from_millis(200), consumer.recv_ordered()).await
+    {
         received_chunks += 1;
         if received_chunks == 40 {
             break;
@@ -364,7 +396,12 @@ async fn test_tokio_client_web_server_camera_mjpeg_and_sse_bridge() {
     // 3. Publish a simulated JPEG frame from edge camera
     let fake_jpeg = b"\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xFF\xD9";
     client
-        .publish("security/camera/01/mjpeg", QoS::AtMostOnce, false, Bytes::from_static(fake_jpeg))
+        .publish(
+            "security/camera/01/mjpeg",
+            QoS::AtMostOnce,
+            false,
+            Bytes::from_static(fake_jpeg),
+        )
         .await
         .unwrap();
 
@@ -402,12 +439,16 @@ async fn test_tokio_client_slint_ui_binding_and_camera_stream() {
 
     // 1. Bind telemetry string property to simulated Slint UI callback
     let _text_binding = client
-        .bind_slint_property("slint/dashboard/temperature", QoS::AtMostOnce, move |_topic, val| {
-            let sink = text_clone.clone();
-            tokio::spawn(async move {
-                *sink.lock().await = val;
-            });
-        })
+        .bind_slint_property(
+            "slint/dashboard/temperature",
+            QoS::AtMostOnce,
+            move |_topic, val| {
+                let sink = text_clone.clone();
+                tokio::spawn(async move {
+                    *sink.lock().await = val;
+                });
+            },
+        )
         .await
         .expect("Slint property binding failed");
 
@@ -427,13 +468,23 @@ async fn test_tokio_client_slint_ui_binding_and_camera_stream() {
 
     // 3. Publish simulated telemetry and camera frame
     client
-        .publish("slint/dashboard/temperature", QoS::AtMostOnce, false, "24.6 C")
+        .publish(
+            "slint/dashboard/temperature",
+            QoS::AtMostOnce,
+            false,
+            "24.6 C",
+        )
         .await
         .unwrap();
 
     let fake_jpeg = b"\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xFF\xD9";
     client
-        .publish("slint/camera/live", QoS::AtMostOnce, false, Bytes::from_static(fake_jpeg))
+        .publish(
+            "slint/camera/live",
+            QoS::AtMostOnce,
+            false,
+            Bytes::from_static(fake_jpeg),
+        )
         .await
         .unwrap();
 
@@ -453,7 +504,8 @@ async fn test_tokio_client_universal_all_sensor_data_types_multithreaded() {
     let (client, _handle) = Client::connect(options);
     wait_for_connected(&client).await;
 
-    let producer = client.create_datastream_producer("sensors/all_types/stream", QoS::AtMostOnce, 256);
+    let producer =
+        client.create_datastream_producer("sensors/all_types/stream", QoS::AtMostOnce, 256);
     let mut consumer = client
         .subscribe_datastream("sensors/all_types/stream", QoS::AtMostOnce, 128)
         .await
@@ -491,8 +543,11 @@ async fn test_tokio_client_universal_all_sensor_data_types_multithreaded() {
     let prod_vision = producer.clone();
     let vision_task = tokio::spawn(async move {
         for _ in 0..10 {
-            let jpeg_data = b"\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xFF\xD9";
-            let _ = prod_vision.send_image("image/jpeg", Bytes::from_static(jpeg_data)).await;
+            let jpeg_data =
+                b"\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xFF\xD9";
+            let _ = prod_vision
+                .send_image("image/jpeg", Bytes::from_static(jpeg_data))
+                .await;
         }
     });
 
@@ -516,14 +571,20 @@ async fn test_tokio_client_universal_all_sensor_data_types_multithreaded() {
     let mut json_count = 0;
     let mut raw_count = 0;
 
-    while let Ok(Ok(Some((_seq, sensor_data)))) = time::timeout(Duration::from_millis(200), consumer.recv_sensor_data()).await {
+    while let Ok(Ok(Some((_seq, sensor_data)))) =
+        time::timeout(Duration::from_millis(200), consumer.recv_sensor_data()).await
+    {
         total_received += 1;
         match sensor_data {
             SensorDataType::TimeSeries(vals) => {
                 assert_eq!(vals.len(), 6);
                 imu_count += 1;
             }
-            SensorDataType::AudioPcm { sample_rate, channels, data } => {
+            SensorDataType::AudioPcm {
+                sample_rate,
+                channels,
+                data,
+            } => {
                 assert_eq!(sample_rate, 16000);
                 assert_eq!(channels, 1);
                 assert_eq!(data.len(), 128);
@@ -557,7 +618,3 @@ async fn test_tokio_client_universal_all_sensor_data_types_multithreaded() {
     assert_eq!(vision_count, 10);
     assert_eq!(json_count, 10);
 }
-
-
-
-

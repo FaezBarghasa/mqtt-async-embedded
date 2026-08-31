@@ -182,7 +182,12 @@ impl AsyncClient {
         qos: QoS,
         journal_capacity: usize,
     ) -> crate::tokio_client::stream::DataStreamProducer {
-        crate::tokio_client::stream::DataStreamProducer::new(self.clone(), topic, qos, journal_capacity)
+        crate::tokio_client::stream::DataStreamProducer::new(
+            self.clone(),
+            topic,
+            qos,
+            journal_capacity,
+        )
     }
 
     /// Subscribes to a sequenced data stream with out-of-order reassembly and gap recovery.
@@ -193,7 +198,10 @@ impl AsyncClient {
         reorder_window: usize,
     ) -> Result<crate::tokio_client::stream::DataStreamConsumer, ClientError> {
         let sub = self.subscribe_stream(topic, qos).await?;
-        Ok(crate::tokio_client::stream::DataStreamConsumer::new(sub, reorder_window))
+        Ok(crate::tokio_client::stream::DataStreamConsumer::new(
+            sub,
+            reorder_window,
+        ))
     }
 
     /// Creates a multi-client broadcast hub for web servers (Axum, Actix-web, SSE, MJPEG).

@@ -6,9 +6,9 @@
 //!    via `slint::Weak::upgrade_in_event_loop`.
 //! 2. **`no_std` Bare-Metal Embedded MCUs**: Zero-allocation polling within MCU display render loops.
 
+use bytes::Bytes;
 use std::string::{String, ToString};
 use std::sync::Arc;
-use bytes::Bytes;
 use tokio::task::JoinHandle;
 
 use crate::packet::QoS;
@@ -126,7 +126,9 @@ impl SlintStreamBinding {
     {
         let topic_str = topic.into();
         let topic_arc: Arc<str> = Arc::from(topic_str.clone());
-        let mut consumer = client.subscribe_datastream(&topic_str, qos, reorder_window).await?;
+        let mut consumer = client
+            .subscribe_datastream(&topic_str, qos, reorder_window)
+            .await?;
 
         let handle = tokio::spawn(async move {
             while let Ok(Some(chunk)) = consumer.recv_ordered().await {

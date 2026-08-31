@@ -7,11 +7,11 @@
 //! - Automatic topic subscription restoration upon reconnect
 //! - Connection state monitoring via `watch::Receiver<ConnectionStatus>`
 
-use std::time::Duration;
 use mqtt_async_embedded::packet::QoS;
 use mqtt_async_embedded::tokio_client::{
     Client, ClientOptions, DataRecoveryPolicy, DropStrategy, OfflineQueuePolicy, ReconnectPolicy,
 };
+use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -71,7 +71,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // 5. Simulate periodic telemetry publishes
-    println!("[*] Publishing telemetry. (Even if broker is temporarily down, messages are queued offline)...");
+    println!(
+        "[*] Publishing telemetry. (Even if broker is temporarily down, messages are queued offline)..."
+    );
     for i in 1..=5 {
         let payload = format!("Vehicle telemetry heartbeat #{}", i);
         let _ = client

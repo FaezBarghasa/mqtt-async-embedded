@@ -72,7 +72,9 @@ impl AsyncWrite for QuicTransportStream {
     ) -> Poll<std::io::Result<usize>> {
         match Pin::new(&mut self.send_stream).poll_write(cx, buf) {
             Poll::Ready(Ok(n)) => Poll::Ready(Ok(n)),
-            Poll::Ready(Err(e)) => Poll::Ready(Err(std::io::Error::new(std::io::ErrorKind::Other, e))),
+            Poll::Ready(Err(e)) => {
+                Poll::Ready(Err(std::io::Error::new(std::io::ErrorKind::Other, e)))
+            }
             Poll::Pending => Poll::Pending,
         }
     }
@@ -81,10 +83,7 @@ impl AsyncWrite for QuicTransportStream {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_shutdown(
-        mut self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-    ) -> Poll<std::io::Result<()>> {
+    fn poll_shutdown(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         match self.send_stream.finish() {
             Ok(()) => Poll::Ready(Ok(())),
             Err(e) => Poll::Ready(Err(std::io::Error::new(std::io::ErrorKind::Other, e))),
@@ -117,9 +116,9 @@ pub async fn connect_transport(target: &TransportTarget) -> Result<BoxedTranspor
             server_name,
         } => {
             use std::sync::Arc;
-            use tokio_rustls::rustls::pki_types::ServerName;
-            use tokio_rustls::rustls::ClientConfig;
             use tokio_rustls::TlsConnector;
+            use tokio_rustls::rustls::ClientConfig;
+            use tokio_rustls::rustls::pki_types::ServerName;
 
             let root_store = tokio_rustls::rustls::RootCertStore {
                 roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
@@ -154,9 +153,11 @@ pub async fn connect_transport(target: &TransportTarget) -> Result<BoxedTranspor
             use std::net::SocketAddr;
             use std::sync::Arc;
 
-            let mut endpoint = quinn::Endpoint::client("[::]:0".parse().unwrap_or_else(|_| {
-                "0.0.0.0:0".parse().expect("Valid fallback bind address")
-            }))
+            let mut endpoint = quinn::Endpoint::client(
+                "[::]:0"
+                    .parse()
+                    .unwrap_or_else(|_| "0.0.0.0:0".parse().expect("Valid fallback bind address")),
+            )
             .map_err(|e| ClientError::Quic(format!("Failed to create QUIC endpoint: {e}")))?;
 
             let crypto = rustls::ClientConfig::builder()

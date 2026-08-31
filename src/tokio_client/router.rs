@@ -15,10 +15,14 @@ use crate::tokio_client::types::{ClientError, PublishMessage};
 /// Validates whether a topic filter string is compliant with the MQTT specification.
 pub fn validate_topic_filter(filter: &str) -> Result<(), ClientError> {
     if filter.is_empty() {
-        return Err(ClientError::InvalidTopic("Topic filter cannot be empty".into()));
+        return Err(ClientError::InvalidTopic(
+            "Topic filter cannot be empty".into(),
+        ));
     }
     if filter.contains('\0') {
-        return Err(ClientError::InvalidTopic("Topic filter cannot contain null characters".into()));
+        return Err(ClientError::InvalidTopic(
+            "Topic filter cannot contain null characters".into(),
+        ));
     }
 
     let levels: Vec<&str> = filter.split('/').collect();
@@ -45,10 +49,14 @@ pub fn validate_topic_filter(filter: &str) -> Result<(), ClientError> {
 /// Validates whether a publish topic string is compliant with the MQTT specification (cannot contain `+` or `#`).
 pub fn validate_publish_topic(topic: &str) -> Result<(), ClientError> {
     if topic.is_empty() {
-        return Err(ClientError::InvalidTopic("Publish topic cannot be empty".into()));
+        return Err(ClientError::InvalidTopic(
+            "Publish topic cannot be empty".into(),
+        ));
     }
     if topic.contains('\0') {
-        return Err(ClientError::InvalidTopic("Publish topic cannot contain null characters".into()));
+        return Err(ClientError::InvalidTopic(
+            "Publish topic cannot contain null characters".into(),
+        ));
     }
     if topic.contains('+') || topic.contains('#') {
         return Err(ClientError::InvalidTopic(

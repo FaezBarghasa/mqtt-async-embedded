@@ -7,8 +7,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::string::{String, ToString};
 use std::time::Duration;
-use std::vec::Vec;
 use std::vec;
+use std::vec::Vec;
 
 use bytes::Bytes;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -22,7 +22,7 @@ use crate::packet::{
 };
 use crate::tokio_client::options::{ClientOptions, DropStrategy};
 use crate::tokio_client::router::TopicRouter;
-use crate::tokio_client::transport::{connect_transport, BoxedTransport};
+use crate::tokio_client::transport::{BoxedTransport, connect_transport};
 use crate::tokio_client::types::{ClientError, ClientRequest, ConnectionStatus, PublishMessage};
 use crate::util::RawPacketFrameIter;
 
@@ -36,6 +36,7 @@ enum IncomingAction {
 }
 
 /// The internal asynchronous event loop managing the socket, MQTT state machine, and session data recovery.
+#[allow(clippy::type_complexity)]
 pub struct EventLoop {
     options: ClientOptions,
     router: TopicRouter,
@@ -44,7 +45,13 @@ pub struct EventLoop {
     transport: Option<BoxedTransport>,
     offline_queue: VecDeque<PublishMessage>,
     active_subscriptions: HashMap<String, QoS>,
-    inflight_publishes: HashMap<u16, (PublishMessage, Option<oneshot::Sender<Result<(), ClientError>>>)>,
+    inflight_publishes: HashMap<
+        u16,
+        (
+            PublishMessage,
+            Option<oneshot::Sender<Result<(), ClientError>>>,
+        ),
+    >,
     inflight_subscribes: HashMap<u16, oneshot::Sender<Result<u16, ClientError>>>,
     inflight_unsubscribes: HashMap<u16, oneshot::Sender<Result<u16, ClientError>>>,
     next_packet_id: u16,
@@ -57,13 +64,13 @@ pub struct EventLoop {
 impl EventLoop {
     pub(crate) fn new(
         options: ClientOptions,
+        router: TopicRouter,
         req_rx: mpsc::Receiver<ClientRequest>,
         status_tx: watch::Sender<ConnectionStatus>,
     ) -> Self {
-        let max_pkt = options.max_packet_size;
         Self {
             options,
-            router: TopicRouter::new(),
+            router,
             req_rx,
             status_tx,
             transport: None,
@@ -73,15 +80,15 @@ impl EventLoop {
             inflight_subscribes: HashMap::new(),
             inflight_unsubscribes: HashMap::new(),
             next_packet_id: 1,
-            rx_buf: vec![0u8; max_pkt],
-            tx_buf: vec![0u8; max_pkt],
+            rx_buf: Vec::with_capacity(4096),
+            tx_buf: Vec::with_capacity(4096),
             last_tx: Instant::now(),
             reconnect_attempt: 0,
         }
     }
 
-    /// Allocates the next rolling MQTT packet ID (1..=65535).
-    fn get_next_packet_id(&mut self) -> u16 {
+    /// Allocates next available 16-bit packet ID.
+    fn allocate_packet_id(&mut self) -> u16 {
         let id = self.next_packet_id;
         self.next_packet_id = self.next_packet_id.wrapping_add(1);
         if self.next_packet_id == 0 {
@@ -94,12 +101,10 @@ impl EventLoop {
     pub async fn run(&mut self) {
         loop {
             // If not connected, attempt connection
-            if self.transport.is_none() {
-                if let Err(e) = self.connect_with_backoff().await {
-                    let _ = self.status_tx.send(ConnectionStatus::Stopped);
-                    tracing::error!("MQTT connection failed permanently: {e}");
-                    break;
-                }
+            if self.transport.is_none() && self.connect_with_backoff().await.is_err() {
+                let _ = self.status_tx.send(ConnectionStatus::Stopped);
+                tracing::error!("MQTT connection failed permanently.");
+                break;
             }
 
             // Drive connection active cycle
@@ -108,7 +113,9 @@ impl EventLoop {
                     let _ = self.status_tx.send(ConnectionStatus::Stopped);
                     break;
                 }
-                tracing::warn!("MQTT connection dropped: {err}. Initiating reconnection & data recovery...");
+                tracing::warn!(
+                    "MQTT connection dropped: {err}. Initiating reconnection & data recovery..."
+                );
                 self.transport = None;
                 let _ = self.status_tx.send(ConnectionStatus::Disconnected);
                 if !self.options.reconnect.enabled {
@@ -156,20 +163,20 @@ impl EventLoop {
                         }
                         Err(e) => {
                             tracing::warn!("MQTT Handshake error: {e}");
-                            if let Some(max) = self.options.reconnect.max_retries {
-                                if self.reconnect_attempt >= max {
-                                    return Err(e);
-                                }
+                            if let Some(max) = self.options.reconnect.max_retries
+                                && self.reconnect_attempt >= max
+                            {
+                                return Err(e);
                             }
                         }
                     }
                 }
                 Err(e) => {
                     tracing::warn!("Transport connection error: {e}");
-                    if let Some(max) = self.options.reconnect.max_retries {
-                        if self.reconnect_attempt >= max {
-                            return Err(e);
-                        }
+                    if let Some(max) = self.options.reconnect.max_retries
+                        && self.reconnect_attempt >= max
+                    {
+                        return Err(e);
                     }
                 }
             }
@@ -192,12 +199,7 @@ impl EventLoop {
 
         let will_data;
         if let Some(ref will) = self.options.will {
-            will_data = crate::packet::Will::new(
-                &will.topic,
-                &will.payload,
-                will.qos,
-                will.retain,
-            );
+            will_data = crate::packet::Will::new(&will.topic, &will.payload, will.qos, will.retain);
             connect.will = Some(will_data);
         }
 
@@ -533,7 +535,9 @@ impl EventLoop {
         ack_sender: Option<oneshot::Sender<Result<(), ClientError>>>,
     ) -> Result<(), ClientError> {
         if let Some(mut transport) = self.transport.take() {
-            let res = self.send_publish_direct(&mut transport, message, ack_sender).await;
+            let res = self
+                .send_publish_direct(&mut transport, message, ack_sender)
+                .await;
             self.transport = Some(transport);
             res
         } else {
@@ -571,7 +575,8 @@ impl EventLoop {
         let packet_id = if message.qos != QoS::AtMostOnce {
             let pid = self.get_next_packet_id();
             message.packet_id = Some(pid);
-            self.inflight_publishes.insert(pid, (message.clone(), ack_sender));
+            self.inflight_publishes
+                .insert(pid, (message.clone(), ack_sender));
             Some(pid)
         } else {
             if let Some(ack) = ack_sender {

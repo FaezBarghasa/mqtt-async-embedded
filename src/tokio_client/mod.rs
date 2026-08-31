@@ -24,7 +24,7 @@ pub use eventloop::EventLoop;
 pub use options::{
     ClientOptions, DropStrategy, OfflineQueuePolicy, ReconnectPolicy, TransportTarget,
 };
-pub use router::{validate_publish_topic, validate_topic_filter, TopicRouter};
+pub use router::{TopicRouter, validate_publish_topic, validate_topic_filter};
 pub use slint_support::SlintStreamBinding;
 pub use stream::{DataStreamConsumer, DataStreamProducer, SensorDataType, StreamChunk};
 pub use types::{ConnectionStatus, DataRecoveryPolicy, PublishMessage, TopicSubscription};

@@ -6,10 +6,10 @@
 //! - Multi-packet burst batch publishing
 //! - Zero-copy payload sharing using `bytes::Bytes`
 
-use std::time::Duration;
 use bytes::Bytes;
 use mqtt_async_embedded::packet::QoS;
 use mqtt_async_embedded::tokio_client::{Client, ClientOptions, PublishMessage};
+use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -51,7 +51,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     client
-        .publish_with_ack("home/livingroom/temperature", QoS::AtLeastOnce, false, "21.8 C")
+        .publish_with_ack(
+            "home/livingroom/temperature",
+            QoS::AtLeastOnce,
+            false,
+            "21.8 C",
+        )
         .await?;
 
     // 5. Fast-path multi-packet burst publish
@@ -63,7 +68,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     let count = client.publish_batch(batch).await?;
-    println!("[Publisher] Batch sent successfully ({} messages in 1 syscall)", count);
+    println!(
+        "[Publisher] Batch sent successfully ({} messages in 1 syscall)",
+        count
+    );
 
     // Allow some time for messages to process
     tokio::time::sleep(Duration::from_millis(500)).await;

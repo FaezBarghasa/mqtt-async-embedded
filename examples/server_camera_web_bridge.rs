@@ -7,10 +7,10 @@
 //! 4. Bridges incoming telemetry and AI motion alerts into Server-Sent Events (SSE).
 //! 5. Distributes live feeds to multiple web browser clients simultaneously with zero MQTT topic contention.
 
-use std::net::SocketAddr;
-use std::time::Duration;
 use bytes::Bytes;
 use futures_util::StreamExt;
+use std::net::SocketAddr;
+use std::time::Duration;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpListener;
 
@@ -48,7 +48,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         println!("[Edge Camera] Starting 10 FPS simulated security video stream...");
         // Minimal valid JPEG SOI/EOI frame
-        let mock_jpeg_frame = b"\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xFF\xD9";
+        let mock_jpeg_frame =
+            b"\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00\xFF\xD9";
         let mut frame_count = 0u64;
 
         loop {
@@ -65,7 +66,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Publish periodic AI motion detection events
             if frame_count % 30 == 0 {
-                let event_json = format!(r#"{{"event":"motion_detected","confidence":0.98,"frame":{frame_count}}}"#);
+                let event_json = format!(
+                    r#"{{"event":"motion_detected","confidence":0.98,"frame":{frame_count}}}"#
+                );
                 let _ = camera_edge_client
                     .publish(
                         "security/camera/front_door/events",
