@@ -1,7 +1,9 @@
 //! # Tokio Transport Connectors and Framed Stream
 //!
-//! Provides connection management for TCP, TLS, QUIC, and Unix Domain Sockets,
-//! with fast-path vectored I/O and zero-copy packet reading.
+//! Provides platform-native connection drivers for **Linux**, **Windows**, and **Android**:
+//! - **Linux Driver**: TCP with nodelay, Rustls TLS, QUIC (`quinn`), and Unix Domain Sockets (`tokio::net::UnixStream`).
+//! - **Windows Driver**: TCP, Rustls TLS, QUIC (`quinn`), and Windows Named Pipes (`tokio::net::windows::named_pipe`).
+//! - **Android Driver**: TCP, Rustls TLS, QUIC (`quinn`), and Linux/Android abstract namespace domain sockets.
 
 use std::boxed::Box;
 use std::format;
@@ -36,6 +38,9 @@ impl AsyncTransport for TcpStream {}
 
 #[cfg(unix)]
 impl AsyncTransport for tokio::net::UnixStream {}
+
+#[cfg(windows)]
+impl AsyncTransport for tokio::net::windows::named_pipe::NamedPipeClient {}
 
 #[cfg(feature = "tokio-tls")]
 impl AsyncTransport for tokio_rustls::client::TlsStream<TcpStream> {}
@@ -96,7 +101,7 @@ impl AsyncTransport for QuicTransportStream {
     }
 }
 
-/// Connects to the specified target and returns a boxed async transport stream.
+/// Connects to the specified cross-platform target and returns a boxed async transport stream.
 pub async fn connect_transport(target: &TransportTarget) -> Result<BoxedTransport, ClientError> {
     match target {
         TransportTarget::Tcp { host, port } => {
@@ -195,7 +200,12 @@ pub async fn connect_transport(target: &TransportTarget) -> Result<BoxedTranspor
         TransportTarget::Unix { path } => {
             #[cfg(unix)]
             {
-                let stream = tokio::net::UnixStream::connect(path).await?;
+                let stream = if let Some(abstract_name) = path.strip_prefix('@') {
+                    // Linux & Android abstract namespace socket
+                    tokio::net::UnixStream::connect(format!("\0{abstract_name}")).await?
+                } else {
+                    tokio::net::UnixStream::connect(path).await?
+                };
                 Ok(Box::new(stream))
             }
             #[cfg(not(unix))]
@@ -204,6 +214,22 @@ pub async fn connect_transport(target: &TransportTarget) -> Result<BoxedTranspor
                 Err(ClientError::Io(std::io::Error::new(
                     std::io::ErrorKind::Unsupported,
                     "Unix domain sockets are not supported on this platform",
+                )))
+            }
+        }
+        TransportTarget::NamedPipe { path } => {
+            #[cfg(windows)]
+            {
+                use tokio::net::windows::named_pipe::ClientOptions;
+                let client = ClientOptions::new().open(path)?;
+                Ok(Box::new(client))
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = path;
+                Err(ClientError::Io(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "Windows Named Pipes are only supported on Windows targets",
                 )))
             }
         }

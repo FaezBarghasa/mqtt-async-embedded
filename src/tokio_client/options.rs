@@ -1,6 +1,7 @@
 //! # Client Configuration and Reconnect Options
 //!
-//! Provides a flexible, ergonomic builder for configuring broker endpoints (TCP, TLS, QUIC, Unix),
+//! Provides a flexible, ergonomic builder for configuring broker endpoints across
+//! **Linux**, **Windows**, and **Android** (TCP, TLS, QUIC, Unix/Android Abstract Sockets, Windows Named Pipes),
 //! authentication, exponential backoff reconnect policies, offline queueing, and session data recovery.
 
 use std::format;
@@ -81,15 +82,21 @@ impl ReconnectPolicy {
     }
 }
 
-/// Transport-level connection targets.
+/// Cross-platform transport connection targets for Linux, Windows, and Android.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TransportTarget {
+    /// Standard TCP socket (Linux, Windows, Android).
     Tcp { host: String, port: u16 },
+    /// TLS encrypted TCP socket via Rustls (Linux, Windows, Android).
     #[cfg(feature = "tokio-tls")]
     Tls { host: String, port: u16, server_name: String },
+    /// MQTT over QUIC / H3 transport with multiplexed streams and datagrams (Linux, Windows, Android).
     #[cfg(feature = "transport-quic")]
     Quic { host: String, port: u16, server_name: String },
+    /// POSIX Unix Domain Sockets or Android Abstract Namespace Sockets (Linux, Android).
     Unix { path: String },
+    /// Windows Named Pipes for high-speed local IPC (Windows).
+    NamedPipe { path: String },
 }
 
 /// Client configuration options.
@@ -134,10 +141,12 @@ impl ClientOptions {
     }
 
     /// Parses a URI string such as:
-    /// - `mqtt://127.0.0.1:1883`
-    /// - `mqtts://broker.hivemq.com:8883`
-    /// - `quic://broker.emqx.io:14567`
-    /// - `unix:///tmp/mqtt.sock`
+    /// - `mqtt://127.0.0.1:1883` (Linux, Windows, Android)
+    /// - `mqtts://broker.hivemq.com:8883` (Linux, Windows, Android)
+    /// - `quic://broker.emqx.io:14567` (Linux, Windows, Android)
+    /// - `unix:///tmp/mqtt.sock` (Linux)
+    /// - `unix://@android_mqtt_ipc` (Android Abstract Namespace)
+    /// - `pipe://\\.\pipe\mqtt_ipc` (Windows Named Pipe)
     pub fn from_uri(client_id: impl Into<String>, uri: &str) -> Result<Self, ClientError> {
         let client_id = client_id.into();
         if let Some(rest) = uri.strip_prefix("mqtt://") {
@@ -183,9 +192,15 @@ impl ClientOptions {
                 path: path.to_string(),
             };
             Ok(opts)
+        } else if let Some(path) = uri.strip_prefix("pipe://") {
+            let mut opts = Self::new(client_id, "localhost", 0);
+            opts.target = TransportTarget::NamedPipe {
+                path: path.to_string(),
+            };
+            Ok(opts)
         } else {
             Err(ClientError::InvalidTopic(format!(
-                "Unsupported scheme in URI '{uri}'. Expected 'mqtt://', 'mqtts://', 'quic://', or 'unix://'"
+                "Unsupported scheme in URI '{uri}'. Expected 'mqtt://', 'mqtts://', 'quic://', 'unix://', or 'pipe://'"
             )))
         }
     }
