@@ -67,6 +67,7 @@ jobs:
           - riscv32imac-unknown-none-elf  # ESP32-C6 / ESP32-H2
           - thumbv7em-none-eabihf         # ARM Cortex-M4F / Cortex-M7
           - thumbv6m-none-eabi           # ARM Cortex-M0 / Cortex-M0+
+          - x86_64-unknown-redox          # Redox OS (microkernel)
     steps:
       - uses: actions/checkout@v4
 

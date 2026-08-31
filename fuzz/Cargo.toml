@@ -1,0 +1,18 @@
+[package]
+name = "mqtt-packet-fuzz"
+version = "0.1.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+mqtt-packet = { path = "../crates/mqtt-packet" }
+
+[[bin]]
+name = "fuzz_packet_decode"
+path = "fuzz_targets/fuzz_packet_decode.rs"
+test = false
+doc = false

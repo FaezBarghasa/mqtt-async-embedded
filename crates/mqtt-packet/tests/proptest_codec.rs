@@ -59,19 +59,100 @@ proptest! {
     }
 
     #[test]
+    fn test_puback_roundtrip(packet_id in 1u16..=65535) {
+        let ack = PubAck::new(packet_id);
+        let mut buf = [0u8; 32];
+        let len = ack.encode(&mut buf, MqttVersion::V3_1_1).unwrap();
+        let decoded = PubAck::decode(&buf[..len], MqttVersion::V3_1_1).unwrap();
+        prop_assert_eq!(decoded.packet_id, packet_id);
+    }
+
+    #[test]
+    fn test_pubrec_pubrel_pubcomp_roundtrip(packet_id in 1u16..=65535) {
+        {
+            let rec = PubRec::new(packet_id);
+            let mut buf = [0u8; 32];
+            let len = rec.encode(&mut buf, MqttVersion::V3_1_1).unwrap();
+            let dec_rec = PubRec::decode(&buf[..len], MqttVersion::V3_1_1).unwrap();
+            prop_assert_eq!(dec_rec.packet_id, packet_id);
+        }
+        {
+            let rel = PubRel::new(packet_id);
+            let mut buf = [0u8; 32];
+            let len = rel.encode(&mut buf, MqttVersion::V3_1_1).unwrap();
+            let dec_rel = PubRel::decode(&buf[..len], MqttVersion::V3_1_1).unwrap();
+            prop_assert_eq!(dec_rel.packet_id, packet_id);
+        }
+        {
+            let comp = PubComp::new(packet_id);
+            let mut buf = [0u8; 32];
+            let len = comp.encode(&mut buf, MqttVersion::V3_1_1).unwrap();
+            let dec_comp = PubComp::decode(&buf[..len], MqttVersion::V3_1_1).unwrap();
+            prop_assert_eq!(dec_comp.packet_id, packet_id);
+        }
+    }
+
+    #[test]
+    fn test_subscribe_roundtrip(
+        packet_id in 1u16..=65535,
+        topic in "[a-zA-Z0-9_/]{1,32}",
+        qos_raw in 0u8..=2,
+    ) {
+        let mut sub = Subscribe::new(packet_id);
+        sub.add_topic(&topic, QoS::from(qos_raw)).unwrap();
+
+        let mut buf = [0u8; 256];
+        let len = sub.encode(&mut buf, MqttVersion::V3_1_1).unwrap();
+        let decoded = Subscribe::decode(&buf[..len], MqttVersion::V3_1_1).unwrap();
+        prop_assert_eq!(decoded.packet_id, packet_id);
+        prop_assert_eq!(decoded.topics.len(), 1);
+        prop_assert_eq!(decoded.topics[0].0, topic.as_str());
+        prop_assert_eq!(decoded.topics[0].1, QoS::from(qos_raw));
+    }
+
+    #[test]
+    fn test_unsubscribe_roundtrip(
+        packet_id in 1u16..=65535,
+        topic in "[a-zA-Z0-9_/]{1,32}",
+    ) {
+        let mut unsub = Unsubscribe::new(packet_id);
+        unsub.add_topic(&topic).unwrap();
+
+        let mut buf = [0u8; 256];
+        let len = unsub.encode(&mut buf, MqttVersion::V3_1_1).unwrap();
+        let decoded = Unsubscribe::decode(&buf[..len], MqttVersion::V3_1_1).unwrap();
+        prop_assert_eq!(decoded.packet_id, packet_id);
+        prop_assert_eq!(decoded.topics.len(), 1);
+        prop_assert_eq!(decoded.topics[0], topic.as_str());
+    }
+
+    #[test]
     fn test_fuzz_random_bytes_no_panic(bytes in proptest::collection::vec(any::<u8>(), 0..512)) {
         let _ = decode(&bytes, MqttVersion::V3_1_1);
         let _ = decode(&bytes, MqttVersion::V5);
         let _ = Connect::decode(&bytes, MqttVersion::V3_1_1);
+        let _ = Connect::decode(&bytes, MqttVersion::V5);
+        let _ = ConnAck::decode(&bytes, MqttVersion::V3_1_1);
+        let _ = ConnAck::decode(&bytes, MqttVersion::V5);
         let _ = Publish::decode(&bytes, MqttVersion::V3_1_1);
+        let _ = Publish::decode(&bytes, MqttVersion::V5);
         let _ = PubAck::decode(&bytes, MqttVersion::V3_1_1);
+        let _ = PubAck::decode(&bytes, MqttVersion::V5);
         let _ = PubRec::decode(&bytes, MqttVersion::V3_1_1);
+        let _ = PubRec::decode(&bytes, MqttVersion::V5);
         let _ = PubRel::decode(&bytes, MqttVersion::V3_1_1);
+        let _ = PubRel::decode(&bytes, MqttVersion::V5);
         let _ = PubComp::decode(&bytes, MqttVersion::V3_1_1);
+        let _ = PubComp::decode(&bytes, MqttVersion::V5);
         let _ = Subscribe::decode(&bytes, MqttVersion::V3_1_1);
+        let _ = Subscribe::decode(&bytes, MqttVersion::V5);
         let _ = SubAck::decode(&bytes, MqttVersion::V3_1_1);
+        let _ = SubAck::decode(&bytes, MqttVersion::V5);
         let _ = Unsubscribe::decode(&bytes, MqttVersion::V3_1_1);
+        let _ = Unsubscribe::decode(&bytes, MqttVersion::V5);
         let _ = UnsubAck::decode(&bytes, MqttVersion::V3_1_1);
+        let _ = UnsubAck::decode(&bytes, MqttVersion::V5);
         let _ = Disconnect::decode(&bytes, MqttVersion::V3_1_1);
+        let _ = Disconnect::decode(&bytes, MqttVersion::V5);
     }
 }

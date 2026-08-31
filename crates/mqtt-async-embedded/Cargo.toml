@@ -154,3 +154,22 @@ path = "examples/server_camera_web_bridge.rs"
 name = "slint_dashboard_app"
 required-features = ["tokio-client"]
 path = "examples/slint_dashboard_app.rs"
+
+[[example]]
+name = "slint_dashboard"
+required-features = ["tokio-client"]
+path = "examples/slint_dashboard.rs"
+
+[[example]]
+name = "stm32h7_embassy_mqtt"
+path = "examples/stm32h7_embassy_mqtt.rs"
+
+[[example]]
+name = "esp32c3_uart_mqtt"
+path = "examples/esp32c3_uart_mqtt.rs"
+
+[[example]]
+name = "redox_daemon"
+required-features = ["tokio-client"]
+path = "examples/redox_daemon.rs"
+

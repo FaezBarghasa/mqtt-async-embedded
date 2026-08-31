@@ -42,6 +42,12 @@ pub trait MqttTransport {
     }
 }
 
+/// Pluggable TLS transport trait for MCU targets (e.g. `embedded-tls`, `mbedtls-sys`).
+pub trait TlsTransport: MqttTransport {
+    /// Returns true if the secure TLS handshake has been established.
+    fn is_handshake_complete(&self) -> bool;
+}
+
 /// QUIC transport trait abstraction.
 pub trait MqttQuicTransport {
     type Error: TransportError;

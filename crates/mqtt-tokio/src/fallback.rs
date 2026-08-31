@@ -6,7 +6,9 @@
 use std::time::Duration;
 use tracing::{info, warn};
 
-use crate::options::{ClientOptions, TransportTarget};
+use crate::options::ClientOptions;
+#[cfg(any(feature = "quic", feature = "transport-quic"))]
+use crate::options::TransportTarget;
 use crate::transport::{BoxedTransport, connect_transport};
 use crate::types::ClientError;
 
@@ -39,7 +41,7 @@ impl SmartTransport {
         options: &ClientOptions,
         original_error: ClientError,
     ) -> Result<BoxedTransport, ClientError> {
-        #[cfg(feature = "transport-quic")]
+        #[cfg(any(feature = "quic", feature = "transport-quic"))]
         if let TransportTarget::Quic { ref host, port, .. } = options.target {
             info!("Attempting automatic fallback from QUIC to standard TCP...");
             let fallback_target = TransportTarget::Tcp {

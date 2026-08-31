@@ -23,7 +23,8 @@ pub use inflight::{InflightEntry, InflightQueue, InflightStatus};
 pub use stream_writer::MqttStreamWriter;
 pub use transport::{
     EmbeddedIoError, EmbeddedIoSplitTransport, EmbeddedIoTransport, MqttQuicRecvStream,
-    MqttQuicSendStream, MqttQuicTransport, MqttTransport, SplitIoError, TransportError,
+    MqttQuicSendStream, MqttQuicTransport, MqttTransport, SplitIoError, TlsTransport,
+    TransportError,
 };
 
 #[cfg(feature = "transport-smoltcp")]
