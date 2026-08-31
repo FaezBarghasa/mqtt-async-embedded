@@ -1,53 +1,38 @@
 # Design Brief & Architectural Principles
 
-This document presents the core design philosophy, architectural goals, memory model, and interface contracts of `mqtt-async-embedded`.
+Design philosophy, zero-allocation memory model, and interface contracts of `mqtt-async-embedded`.
 
 ---
 
-## 1. Executive Summary & Vision
+## 1. Core Principles
 
-`mqtt-async-embedded` is a light-weight, asynchronous, zero-allocation (`no_std` / `no_alloc`) MQTT client library written in Rust for resource-constrained microcontrollers (e.g. ARM Cortex-M, ESP32, RISC-V). Designed natively around the **Embassy** async ecosystem and Rust 2024 edition standard async features, it decouples networking protocols from raw hardware peripherals.
+- **Zero Allocations (`no_std`, `no_alloc`)**: Static compile-time buffers (`const BUF_SIZE: usize`) and `heapless` collections. No heap, no runtime fragmentation.
+- **Hardware Decoupling**: All I/O goes through `MqttTransport` (TCP, UART modems, SPI) or `MqttQuicTransport`.
+- **Native Async (Rust 2024)**: Non-blocking timers via `embassy-time`. No boxed futures.
+- **Protocol Completeness**: Full wire codec for MQTT v3.1.1 and v5.0 (User Properties, Reason Codes), LWT, dynamic unsubscriptions, and QoS 2 broker handshakes.
+- **Zero-RAM Chunk Streaming**: `MqttStreamWriter` streams continuous data (ADC, camera, audio) chunk-by-chunk directly across the wire on MCUs with only 512B-2KB RAM.
 
 ---
 
-## 2. Core Architectural Pillars
-
-### 2.1. Zero Dynamic Allocation (`no_std` & `no_alloc`)
-- **Fixed-Capacity Buffers**: Uses compile-time constant generics `const BUF_SIZE: usize` for static transmit (`tx_buffer`) and receive (`rx_buffer`) buffers.
-- **Bounded Data Structures**: Employs `heapless` collections for topic management and packet queueing without heap fragmentations or runtime memory panics.
-
-### 2.2. Hardware-Agnostic Abstraction
-- Transport capabilities are abstracted using the custom `MqttTransport` trait.
-- Works seamlessly over standard TCP (`embassy-net`, `std::net`), UART (AT-command modems like ESP8266/SIM800), SPI, or custom wireless radio stacks.
+## 2. Transport Trait Contract
 
 ```rust
 pub trait MqttTransport {
     type Error: TransportError;
     async fn send(&mut self, buf: &[u8]) -> Result<(), Self::Error>;
     async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error>;
+    async fn send_vectored(&mut self, bufs: &[&[u8]]) -> Result<(), Self::Error>;
 }
 ```
 
-### 2.3. Asynchronous Native Design
-- Leverages Embassy `embassy-time` for non-blocking timers (`Instant`, `Duration`).
-- Implements Rust 2024 edition native `async fn` traits without allocating boxed futures.
-
-### 2.4. Protocol Flexibility & Feature Modularization
-- Supports both MQTT **v3.1.1** and **v5.0** protocol specifications with rich properties, reason codes, and user property pairs.
-- Full support for **Last Will and Testament (LWT)**, **`UNSUBSCRIBE` / `UNSUBACK`**, and broker QoS 2 handshakes (`PUBREC`, `PUBREL`, `PUBCOMP`).
-- Modular logging with zero-overhead `defmt` support for microcontrollers or standard `log`/`env_logger` on desktop host environments.
-
-### 2.5. Real-Time Streaming & Zero-RAM Chunking
-- **Chunked Stream Ingestion (`MqttStreamWriter`)**: Microcontrollers with 512B - 2KB static RAM can stream large or continuous payloads (PCM audio, camera JPEG stills, sensor waveforms) directly across the transport chunk-by-chunk without full in-memory buffering.
-- **`StreamMode::RealTimeStreaming`**: Low-latency, fast-path zero-copy dispatch for high-rate continuous telemetry.
-- **Dedicated QUIC Telemetry Streams**: Independent unidirectional streams multiplexed over QUIC with zero Head-of-Line blocking.
+Universal adapters (`EmbeddedIoTransport` and `EmbeddedIoSplitTransport`) wrap any `embedded-io-async` socket automatically.
 
 ---
 
-## 3. Memory & Lifetime Safety Model
+## 3. Zero-Copy Lifetime Model
 
-### 3.1. Zero-Copy Event Yielding
-Received MQTT packets (such as `Publish<'p>`) borrow slice references directly from the internal `rx_buffer` for lifetime `'p`.
+Incoming packets borrow directly from the internal `rx_buffer` for lifetime `'p`:
+
 ```rust
 pub enum MqttEvent<'p> {
     Publish(Publish<'p>),
@@ -58,24 +43,20 @@ pub enum MqttEvent<'p> {
     Disconnect(Disconnect<'p>),
 }
 ```
-This guarantees zero heap copies while ensuring safety: the event reference cannot outlive the lifetime of the client's mutable `poll()` borrow.
 
-### 3.2. Defensive Bounds Checking & Resilient Codecs
-All serialization and deserialization functions use checked slice indexing (`get()`, `get_mut()`) rather than unchecked direct index offsets, ensuring that malformed, truncated, or malicious broker packets cleanly bubble up as `MqttError::Protocol(ProtocolError::MalformedPacket)` or `MqttError::BufferTooSmall` rather than triggering panic aborts.
-
-### 3.3. Buffer Allocation Strategy
-- `BUF_SIZE`: Fixed array size for transmit/receive buffers (default standard recommendation: 512B - 2048B).
-- `MAX_TOPICS`: Maximum allowed concurrent subscriptions or filters stored statically in `heapless::Vec`.
+- **Bounds Safety**: Decoders use checked slice indexing (`get()`, `get_mut()`). Truncated or malformed frames return `ProtocolError::MalformedPacket` instead of panicking.
+- **Compile-Time Buffer Sizing**:
+  - `BUF_SIZE`: Fixed byte capacity for TX/RX buffers (typically 512B to 2048B).
+  - `MAX_TOPICS`: Maximum static subscription filters in `heapless::Vec`.
 
 ---
 
-## 4. Hardware and Network Integration Targets
+## 4. Hardware & Ecosystem Support Matrix
 
-| Ecosystem Layer | Implementation / Integration Target |
+| Layer | Targets |
 | :--- | :--- |
-| **ESP32 Microcontrollers** | **ESP32-S series** (ESP32-S2, ESP32-S3) [Xtensa] & **ESP32-C series** (ESP32-C2, ESP32-C3, ESP32-C6) [RISC-V], ESP32 classic, ESP32-H2 |
-| **Microcontroller HALs** | **`esp-hal`** (bare-metal `no_std`), `esp-wifi`, **`esp-idf-svc` / `esp-idf-hal`**, `embassy-stm32`, `embassy-nrf`, `rp-hal` |
-| **Async Runtime** | **`embassy-executor`** (bare-metal non-allocating tasks) & `tokio` (desktop/edge) |
-| **Universal Adapters** | `EmbeddedIoTransport<S>` and `EmbeddedIoSplitTransport<R, W>` for any `embedded-io-async` socket |
-| **Network Stacks** | `embassy-net` (`smoltcp`), `esp-wifi`, BSD / ESP-IDF sockets, UART AT modems |
-| **Host / Edge System** | `tokio`, `std::net::TcpStream`, `quinn` (QUIC / H3) |
+| **ESP32 MCUs** | ESP32-S series (S2, S3), ESP32-C series (C2, C3, C6, H2), ESP32 classic |
+| **HALs** | `esp-hal` (`no_std`), `esp-wifi`, `esp-idf-svc`, `embassy-stm32`, `embassy-nrf`, `rp-hal` |
+| **Runtimes** | `embassy-executor` (bare-metal), `tokio` (desktop/edge) |
+| **Network Stacks** | `embassy-net` (`smoltcp`), `esp-wifi`, BSD sockets, UART AT modems |
+| **Host / Edge** | `tokio`, `std::net::TcpStream`, `quinn` (QUIC / H3) |

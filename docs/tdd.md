@@ -1,16 +1,18 @@
 # Technical Design Document (TDD)
 
-## 1. System Architecture & Component Design
+Subsystem architectures, transport contracts, and testing specifications for `mqtt-async-embedded`.
 
-The `mqtt-async-embedded` crate provides an asynchronous, zero-allocation (`no_std`) MQTT protocol client for embedded microcontrollers and edge gateways.
+---
+
+## 1. System Architecture
 
 ```
 +------------------------------------------------------------------+
-|                    Application Code (Embassy Task)                |
+|                    Application (Embassy Task)                    |
 +------------------------------------------------------------------+
 |  MqttClient<'a, T, MAX_TOPICS, BUF_SIZE>                         |
 |   +-------------------+  +-------------------+  +---------------+|
-|   |  ConnectionState  |  | tx_buffer / rx_...|  | MqttOptions   ||
+|   |  ConnectionState  |  |  tx_buf / rx_buf  |  |  MqttOptions  ||
 |   +-------------------+  +-------------------+  +---------------+|
 +------------------------------------------------------------------+
                                   |
@@ -21,28 +23,26 @@ The `mqtt-async-embedded` crate provides an asynchronous, zero-allocation (`no_s
                     +---------------------------+
                      /            |            \
                     v             v             v
-            TcpSocket        UART Modem      QUIC Stream
+             TcpSocket        UART Modem      QUIC Stream
             (embassy-net)   (ESP8266/AT)    (Quinn / Cellular)
 ```
 
 ---
 
-## 2. Key Modules & Subsystems
+## 2. Core Modules
 
 ### 2.1. Client Module (`src/client.rs`)
-- **`MqttOptions<'a>`**: Holds `client_id`, `broker_addr`, `broker_port`, `keep_alive`, `clean_session`, `username`, `password`, and `will` (`Will<'a>`).
+- **`MqttOptions<'a>`**: Holds broker parameters, keep-alive interval, clean session, credentials, and LWT configuration.
 - **`MqttClient<'a, T, MAX_TOPICS, BUF_SIZE>`**:
-  - `transport`: Generic parameter `T` implementing `MqttTransport`.
-  - `publish(topic, payload, qos)`: Publishes single message with QoS validation.
+  - `publish(topic, payload, qos)`: Publishes single message.
   - `publish_batch(&[PublishMessage])`: Packs multiple messages into a single network frame.
-  - `subscribe(&[(&str, QoS)])`: Subscribes to topic filters returning packet ID.
-  - `unsubscribe(&[&str])`: Unsubscribes from topic filters returning packet ID.
-  - `poll()` / `poll_batch()`: Parses and yields all available incoming events in `rx_buffer`.
-- **`QuicMqttClient<'a, Q, BUF_SIZE>`**:
-  - Specialized real-time client transmitting telemetry directly over unreliable QUIC datagrams.
+  - `subscribe(&[(&str, QoS)])`: Sends subscription request and returns `packet_id`.
+  - `unsubscribe(&[&str])`: Sends unsubscription request and returns `packet_id`.
+  - `poll()` / `poll_batch()`: Parses RX buffer and yields zero-copy `MqttEvent<'p>`.
+- **`QuicMqttClient<'a, Q, BUF_SIZE>`**: Transmits real-time telemetry over unreliable QUIC datagrams.
 
-### 2.2. Transport Abstraction Layer (`src/transport.rs`)
-Decouples protocol execution from physical socket or radio modems:
+### 2.2. Transport Abstraction (`src/transport.rs`)
+
 ```rust
 pub trait MqttTransport {
     type Error: TransportError;
@@ -63,52 +63,32 @@ pub trait MqttQuicTransport {
 }
 ```
 
-#### Universal `embedded-io-async` Adapters
-- **`EmbeddedIoTransport<S>`**: Wraps any single stream `S: embedded_io_async::Read + embedded_io_async::Write` (`esp-hal`, `esp-wifi`, `esp-idf-svc`, `embassy-net`).
-- **`EmbeddedIoSplitTransport<R, W>`**: Wraps separate reader `R` and writer `W` streams (split UART RX/TX or split TCP channels).
+- **`EmbeddedIoTransport<S>`**: Wraps any combined async stream (`Read + Write`).
+- **`EmbeddedIoSplitTransport<R, W>`**: Wraps separate reader and writer streams (e.g. split UART RX/TX).
 
 ---
 
-## 3. Asynchronous Flow & Concurrency Considerations
+## 3. Concurrency & Lifetimes
 
-### 3.1. Single-Threaded Async Polling & Multi-Packet Burst
-Designed specifically for cooperative async executors like `embassy-executor`. Polling processes all frames available in `rx_buffer`, automatically generating QoS 1 `PUBACK` responses inline.
-
-### 3.2. Lifetime Annotations & Zero-Allocation Safety
-`MqttEvent<'p>` borrows from the client's internal `rx_buffer` for duration `'p'`. Because Rust enforces exclusive borrow semantics, events are processed without dynamic allocation or heap fragmentation.
+- **Async Polling**: Cooperative execution tailored for `embassy-executor`. Polling automatically responds to QoS 1 incoming packets with `PUBACK`.
+- **Zero-Allocation Lifetime**: `MqttEvent<'p>` borrows from the internal `rx_buffer`. Compiler ensures events do not outlive the client borrow.
 
 ---
 
-## 4. Feature Flags & Target Matrix
+## 4. Testing & Verification
 
-- **`default = []`**: Standard `no_std` compilation for embedded microcontrollers.
-- **`std`**: Includes standard library support for host testing and mocks.
-- **`v5`**: Enables MQTT v5 extended properties and user properties.
-- **`defmt`**: Implements `defmt::Format` across all packet and client types for zero-overhead microcontroller logging.
-- **`transport-smoltcp`**: Integrates directly with `embassy-net` TCP stack.
-- **`transport-quic`**: Enables MQTT over QUIC / H3 via `quinn`.
-
-### Supported Target Architectures
-- **ESP32-S Series**: ESP32-S2, ESP32-S3 (`xtensa-esp32s3-none-elf`)
-- **ESP32-C Series**: ESP32-C2, ESP32-C3, ESP32-C6, ESP32-H2 (`riscv32imc-unknown-none-elf`, `riscv32imac-unknown-none-elf`)
-- **ARM Cortex-M**: Cortex-M0/M3/M4/M7/M33 (`thumbv7em-none-eabihf`)
-
----
-
-## 5. Verification & Testing Strategy
-
-1. **Unit Testing (`tests/engine_tests.rs`)**:
-   - Variable-byte integer encoding/peeking tests.
-   - Packet codec roundtrip tests (`Publish`, `Subscribe`, `Unsubscribe`, `Connect` with LWT, `PubAck`, `ConnAck`, `Disconnect`).
-   - Bounds safety and malformed packet tests (`read_properties` truncation, 0-byte buffer encoding).
-   - Multi-packet streaming frame iteration tests (`RawPacketFrameIter`).
-2. **Client-Level Integration Testing (`tests/client_tests.rs`)**:
-   - In-memory async mock transport verifying connection lifecycle, refusal handling, QoS 0/1 burst sending, automatic QoS 1 `PUBACK`, dynamic unsubscription, `EmbeddedIoTransport` stream binding, and `EmbeddedIoSplitTransport` binding (20 tests total).
+1. **Unit Tests (`tests/engine_tests.rs`)**:
+   - Variable-byte integer encoding/decoding.
+   - Control packet roundtrips (`Publish`, `Subscribe`, `Unsubscribe`, `Connect`, `PubAck`, `ConnAck`, `Disconnect`).
+   - Frame bounds safety and zero-length buffer assertions.
+   - Multi-packet frame iteration via `RawPacketFrameIter`.
+2. **Integration Tests (`tests/client_tests.rs`)**:
+   - Mock transport verifying connection handshakes, QoS 0/1 bursts, auto-`PUBACK`, and stream adapters (20 tests).
 3. **Hardware Examples**:
-   - `examples/esp32_wifi_embassy.rs`: ESP32 Wi-Fi & Embassy async task loop.
-   - `examples/multipacket_burst.rs`: Multi-packet batch sending.
-   - `examples/quic_client.rs`: Real-time QUIC datagrams.
-   - `examples/esp8266_uart.rs`: AT UART hardware driver bridge.
-   - `examples/smoltcp_ethernet.rs`: Native `embassy-net` TCP socket.
-   - `examples/desktop_mock.rs`: TCP lifecycle connection, subscription, and disconnection tests.
-
+   - `examples/esp32_wifi_embassy.rs` (ESP32 Wi-Fi task)
+   - `examples/multipacket_burst.rs` (Batch burst)
+   - `examples/realtime_stream.rs` (Chunk streaming)
+   - `examples/quic_client.rs` (QUIC datagrams)
+   - `examples/esp8266_uart.rs` (UART AT modem)
+   - `examples/smoltcp_ethernet.rs` (`embassy-net` TCP)
+   - `examples/desktop_mock.rs` (Desktop TCP lifecycle)

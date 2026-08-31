@@ -6,122 +6,128 @@
 [![CI](https://github.com/FaezBarghasa/mqtt-async-embedded/actions/workflows/ci.yml/badge.svg)](https://github.com/FaezBarghasa/mqtt-async-embedded/actions/workflows/ci.yml)
 [![no_std](https://img.shields.io/badge/no__std-compatible-success.svg)](https://docs.rust-embedded.org/book/intro/no-std.html)
 
-An `async`, `no_std`-compatible MQTT client library in Rust (2024 edition), designed for embedded microcontrollers, edge gateways, and low-latency IoT systems with **zero dynamic heap allocations**, **multi-packet burst batching**, **Last Will and Testament (LWT)**, and **MQTT over QUIC / HTTP/3** support.
+Async, `no_std` MQTT client in Rust (2024 edition) for MCUs, edge gateways, and low-latency IoT.
+
+## Key Facts
+- **Memory**: Zero heap allocations (`no_std`, `no_alloc`). Uses static `heapless` buffers and const generics.
+- **Protocols**: MQTT v3.1.1, MQTT v5.0, and MQTT over QUIC / HTTP/3.
+- **QoS**: QoS 0 (`AtMostOnce`), QoS 1 (`AtLeastOnce`) with auto-`PUBACK`. Rejects QoS 2 with `UnsupportedQoS`.
+- **Transports**: Abstracted via `MqttTransport` (TCP, UART modems, SPI) and `MqttQuicTransport`. Universal `embedded-io-async` adapters included.
+- **High-Throughput Features**:
+  - **Burst Publish (`publish_batch`)**: Packs multiple messages into one frame.
+  - **Burst Poll (`poll_batch`)**: Drains all available packets from RX buffer in one pass.
+  - **Chunk Streaming (`begin_stream_publish`)**: Streams large payloads (audio, camera stills) chunk-by-chunk with zero intermediate RAM buffers.
+  - **QUIC Datagrams**: Unreliable sub-millisecond sensor streaming without Head-of-Line blocking.
 
 ---
 
-## Core Highlights
+## Quickstart
 
-- **`no_std` & `no_alloc` by Default**: Zero dynamic heap allocations across all communication cycles using compile-time const generics and static `heapless` buffers.
-- **Real-Time Streaming Option (`StreamMode::RealTimeStreaming`)**:
-  - `begin_stream_publish()` & `MqttStreamWriter`: Streams large or continuous payloads (audio, camera stills, high-rate IMU) chunk-by-chunk directly across the transport without requiring large RAM buffers on microcontrollers.
-  - Zero-copy, low-latency fast-path dispatch.
-- **High-Throughput Multi-Packet Burst**:
-  - `publish_batch(&[PublishMessage])`: Packs multiple telemetry messages into a single network frame burst to minimize socket and hardware write overhead.
-  - `poll_batch()`: Parses and yields all available incoming events in a single receive buffer using `RawPacketFrameIter` without dropping packets.
-- **MQTT over QUIC / HTTP/3 (`MqttQuicTransport`)**:
-  - Eliminates Head-of-Line (HoL) blocking via stream multiplexing.
-  - Dedicated real-time telemetry streaming channels (`open_telemetry_stream`).
-  - Ultra-fast real-time sensor streaming via unreliable QUIC datagrams (`QuicMqttClient`).
-  - Native 0-RTT connection resumption.
-- **Protocol Completeness**:
-  - Full wire codec support for MQTT **v3.1.1** and **v5.0** (User Properties, Reason Codes, Property lengths).
-  - Explicit Quality of Service: QoS 0 (`AtMostOnce`) and QoS 1 (`AtLeastOnce`) with pipelined auto-ACKs (`PUBACK`). Runtime validation explicitly rejects unsupported QoS (`UnsupportedQoS`).
-  - **Last Will and Testament (LWT)** with custom topics, payloads, QoS, and retain flags.
-  - **`UNSUBSCRIBE` & `UNSUBACK`** support for dynamic topic unsubscriptions.
-  - Robust broker packet recognition including `PUBREC`, `PUBREL`, and `PUBCOMP`.
-- **Hardware & Transport Agnostic**: Decoupled via `MqttTransport` (TCP, UART modems, SPI) and `MqttQuicTransport` (cellular QUIC modems, `quinn`).
-- **Fast-Path Vectored I/O**: `send_vectored` allows zero-copy header + payload transmission.
-- **Memory & Panics Resilient**: Defensive bounds checking across all frame decoders and encoders with detailed `MqttError` reporting.
-
----
-
-## Getting Started
-
-Add `mqtt-async-embedded` to your `Cargo.toml`:
-
+Add to `Cargo.toml`:
 ```toml
 [dependencies]
 mqtt-async-embedded = "1.2.0"
 ```
 
-### Standard TCP / UART Embedded Client
+### Standard Client Example
 
 ```rust,no_run
-use mqtt_async_embedded::{
-    MqttClient, MqttOptions, MqttVersion, QoS, PublishMessage, MqttEvent,
-};
 use embassy_time::Duration;
+use mqtt_async_embedded::{
+    MqttClient, MqttEvent, MqttOptions, MqttVersion, PublishMessage, QoS,
+};
 
 async fn run_mqtt<T: mqtt_async_embedded::MqttTransport>(transport: T) {
-    // 1. Configure options with client ID, broker endpoint, keep-alive, and optional LWT
+    // 1. Config
     let options = MqttOptions::new("embedded-sensor-node", "192.168.1.100", 1883)
         .with_version(MqttVersion::V5)
         .with_keep_alive(Duration::from_secs(30))
         .with_clean_session(true)
         .with_will("devices/sensor-node/status", b"offline", QoS::AtLeastOnce, true);
 
-    // 2. Instantiate client with const generics: MAX_TOPICS = 8, BUF_SIZE = 2048 bytes
+    // 2. Init (MAX_TOPICS = 8, BUF_SIZE = 2048 bytes)
     let mut client: MqttClient<_, 8, 2048> = MqttClient::new(transport, options);
 
-    // 3. Connect to broker
-    client.connect().await.expect("Failed to connect");
+    // 3. Connect & Subscribe
+    client.connect().await.expect("Connect failed");
+    client.subscribe(&[("sensors/commands/+", QoS::AtLeastOnce)]).await.expect("Sub failed");
 
-    // 4. Subscribe to topic filter
-    client.subscribe(&[("sensors/commands/+", QoS::AtLeastOnce)]).await.expect("Subscribe failed");
+    // 4. Single Publish
+    client.publish("sensors/temp", b"24.5", QoS::AtLeastOnce).await.expect("Pub failed");
 
-    // 5. Single message publish (QoS 0 or 1)
-    client.publish("sensors/temp", b"24.5", QoS::AtLeastOnce).await.expect("Publish failed");
-
-    // 6. Multi-packet burst publish (highest throughput)
+    // 5. Batch Burst Publish
     let batch = [
         PublishMessage::new("sensors/temp", b"24.5", QoS::AtMostOnce),
         PublishMessage::new("sensors/humidity", b"60.2", QoS::AtMostOnce),
-        PublishMessage::new("sensors/pressure", b"1013.25", QoS::AtMostOnce),
     ];
-    let sent = client.publish_batch(&batch).await.expect("Batch publish failed");
-    defmt::info!("Published {} burst messages in single frame", sent);
+    client.publish_batch(&batch).await.expect("Batch failed");
 
-    // 7. Real-time stream publishing (streaming big audio/camera/sensor payload in chunks)
-    let total_audio_bytes = 4096;
+    // 6. Zero-RAM Chunk Stream Publish
     let mut stream = client
-        .begin_stream_publish("sensors/audio/pcm", total_audio_bytes, QoS::AtMostOnce)
+        .begin_stream_publish("sensors/audio/pcm", 4096, QoS::AtMostOnce)
         .await
-        .expect("Stream begin failed");
-    
-    // Write chunks as they arrive from DMA / ADC buffers without buffering the whole payload
+        .expect("Stream init failed");
     for chunk in audio_dma_chunks {
         stream.write_chunk(chunk).await.expect("Chunk write failed");
     }
     stream.finish().expect("Stream finish failed");
 
-    // 8. Polling event loop
+    // 7. Event Loop
     loop {
         match client.poll().await {
-            Ok(Some(MqttEvent::Publish(msg))) => {
-                defmt::info!("Received message on topic: {}", msg.topic);
-            }
-            Ok(Some(MqttEvent::PubAck(ack))) => {
-                defmt::info!("Received PubAck for packet ID: {}", ack.packet_id);
-            }
-            Ok(Some(MqttEvent::SubAck(suback))) => {
-                defmt::info!("Received SubAck for packet ID: {}", suback.packet_id);
-            }
-            Ok(Some(MqttEvent::UnsubAck(unsuback))) => {
-                defmt::info!("Received UnsubAck for packet ID: {}", unsuback.packet_id);
-            }
-            Ok(Some(MqttEvent::PingResp)) => {
-                defmt::trace!("Heartbeat PINGRESP received");
-            }
-            Ok(Some(MqttEvent::Disconnect(disc))) => {
-                defmt::warn!("Broker disconnected, reason: {}", disc.reason_code);
-                break;
-            }
+            Ok(Some(MqttEvent::Publish(msg))) => defmt::info!("Topic: {}", msg.topic),
+            Ok(Some(MqttEvent::PubAck(ack))) => defmt::info!("PubAck: {}", ack.packet_id),
+            Ok(Some(MqttEvent::SubAck(sub))) => defmt::info!("SubAck: {}", sub.packet_id),
+            Ok(Some(MqttEvent::UnsubAck(unsub))) => defmt::info!("UnsubAck: {}", unsub.packet_id),
+            Ok(Some(MqttEvent::PingResp)) => defmt::trace!("Heartbeat OK"),
+            Ok(Some(MqttEvent::Disconnect(d))) => break defmt::warn!("Disconnect: {}", d.reason_code),
             Ok(None) => {}
-            Err(e) => {
-                defmt::error!("MQTT Error: {:?}", e);
-                break;
-            }
+            Err(e) => break defmt::error!("MQTT Error: {:?}", e),
+        }
+    }
+}
+```
+
+---
+
+## ESP32 Native Setup (`esp-hal` + `esp-wifi` / `embassy-net`)
+
+Supports ESP32-S series (S2, S3) and ESP32-C series (C2, C3, C6, H2).
+
+```rust,no_run
+use embassy_time::Duration;
+use mqtt_async_embedded::{
+    EmbeddedIoTransport, MqttClient, MqttOptions, MqttVersion, PublishMessage, QoS,
+};
+
+async fn mqtt_task(stack: embassy_net::Stack<'static>) {
+    let mut rx_buf = [0u8; 1536];
+    let mut tx_buf = [0u8; 1536];
+    let mut socket = embassy_net::tcp::TcpSocket::new(stack, &mut rx_buf, &mut tx_buf);
+    
+    socket.connect((embassy_net::Ipv4Address::new(192, 168, 1, 10), 1883)).await.unwrap();
+
+    // Wrap socket in zero-alloc transport adapter
+    let transport = EmbeddedIoTransport::new(socket);
+
+    let options = MqttOptions::new("esp32-node", "192.168.1.10", 1883)
+        .with_version(MqttVersion::V5)
+        .with_keep_alive(Duration::from_secs(30))
+        .with_will("devices/esp32/status", b"offline", QoS::AtLeastOnce, true);
+
+    let mut client: MqttClient<_, 8, 2048> = MqttClient::new(transport, options);
+    client.connect().await.unwrap();
+    client.subscribe(&[("esp32/commands/+", QoS::AtLeastOnce)]).await.unwrap();
+
+    let batch = [
+        PublishMessage::new("esp32/temp", b"24.8", QoS::AtMostOnce),
+        PublishMessage::new("esp32/humidity", b"52.1", QoS::AtMostOnce),
+    ];
+    client.publish_batch(&batch).await.unwrap();
+
+    loop {
+        if let Some(event) = client.poll().await.unwrap() {
+            // Process event
         }
     }
 }
@@ -131,119 +137,48 @@ async fn run_mqtt<T: mqtt_async_embedded::MqttTransport>(transport: T) {
 
 ## Feature Flags
 
-| Feature | Description | Default |
+| Feature | Function | Default |
 | :--- | :--- | :---: |
-| `default` | Zero-allocation, `no_std` pure embedded build. | **Yes** |
-| `std` | Standard library support for desktop development, Tokio, and test mocks. | No |
-| `v5` | Full MQTT v5.0 extended properties and user properties support. | No |
-| `defmt` | Zero-overhead logging implementations for microcontrollers. | No |
-| `transport-smoltcp` | Native integration with `embassy-net` TCP sockets. | No |
-| `transport-quic` | High-throughput MQTT over QUIC / H3 transport for host and Linux edge systems via `quinn`. | No |
+| `default` | Zero-allocation `no_std` embedded build | **Yes** |
+| `std` | Standard library support for desktop/testing | No |
+| `v5` | MQTT v5.0 properties and reason codes | No |
+| `defmt` | Zero-overhead logging for microcontrollers | No |
+| `transport-smoltcp` | Direct `embassy-net` TCP socket integration | No |
+| `transport-quic` | QUIC / HTTP/3 transport via `quinn` | No |
 
 ---
 
-## ESP32 (S-Series & C-Series) & Embassy Native Support
+## Run Examples
 
-`mqtt-async-embedded` is engineered from the ground up for the Espressif and Embassy ecosystem:
-- **ESP32-S Series**: ESP32-S2, ESP32-S3 (Xtensa dual-core / single-core).
-- **ESP32-C Series**: ESP32-C2, ESP32-C3, ESP32-C6, ESP32-H2 (RISC-V).
-- **Framework Agnostic**: Works seamlessly with **`esp-hal`** (pure bare-metal `no_std`), **`esp-wifi`**, and **`esp-idf-svc` / `esp-idf-hal`**.
-- **Universal Adapters**: `EmbeddedIoTransport<S>` and `EmbeddedIoSplitTransport<R, W>` automatically convert any `embedded-io-async` socket or UART into an `MqttTransport`.
-
-### ESP32 `esp-hal` + `esp-wifi` / `embassy-net` Example
-
-```rust,no_run
-use embassy_time::Duration;
-use mqtt_async_embedded::{
-    EmbeddedIoTransport, MqttClient, MqttOptions, MqttVersion, PublishMessage, QoS,
-};
-
-// Inside your Embassy async task on ESP32-S3 or ESP32-C3/C6:
-async fn mqtt_task(stack: embassy_net::Stack<'static>) {
-    let mut rx_buf = [0u8; 1536];
-    let mut tx_buf = [0u8; 1536];
-    let mut socket = embassy_net::tcp::TcpSocket::new(stack, &mut rx_buf, &mut tx_buf);
-    
-    // Connect TCP socket to MQTT broker (e.g. HiveMQ / EMQX / AWS IoT)
-    socket.connect((embassy_net::Ipv4Address::new(192, 168, 1, 10), 1883)).await.unwrap();
-
-    // Wrap socket in universal zero-allocation adapter
-    let transport = EmbeddedIoTransport::new(socket);
-
-    let options = MqttOptions::new("esp32-node", "192.168.1.10", 1883)
-        .with_version(MqttVersion::V5)
-        .with_keep_alive(Duration::from_secs(30))
-        .with_will("devices/esp32/status", b"offline", QoS::AtLeastOnce, true);
-
-    // Static buffers: MAX_TOPICS = 8, BUF_SIZE = 2048 bytes
-    let mut client: MqttClient<_, 8, 2048> = MqttClient::new(transport, options);
-
-    client.connect().await.unwrap();
-    client.subscribe(&[("esp32/commands/+", QoS::AtLeastOnce)]).await.unwrap();
-
-    // Publish high-frequency telemetry burst
-    let batch = [
-        PublishMessage::new("esp32/temp", b"24.8", QoS::AtMostOnce),
-        PublishMessage::new("esp32/humidity", b"52.1", QoS::AtMostOnce),
-    ];
-    client.publish_batch(&batch).await.unwrap();
-
-    loop {
-        if let Some(event) = client.poll().await.unwrap() {
-            // Process incoming events with zero allocations
-        }
-    }
-}
-```
-
----
-
-## Running Examples
-
-### 1. ESP32 Wi-Fi & Embassy Setup
-Demonstrates `EmbeddedIoTransport` wrapping an embedded TCP socket:
 ```bash
+# ESP32 Wi-Fi & Embassy
 cargo run --example esp32_wifi_embassy --features std
-```
 
-### 2. Multi-Packet Burst Batching
-Demonstrates packing multiple sensor messages into a single frame to minimize socket overhead:
-```bash
+# Multi-Packet Burst Batching
 cargo run --example multipacket_burst --features std
-```
 
-### 3. Desktop Mock Client
-Demonstrates complete connect, subscribe, publish, unsubscribe, and disconnect lifecycle over TCP:
-```bash
+# Desktop Mock Client
 cargo run --example desktop_mock --features std
-```
 
-### 4. Real-Time Telemetry & Chunk Streaming
-Demonstrates zero-RAM streaming of large sensor/audio buffers in chunks and `StreamMode::RealTimeStreaming`:
-```bash
+# Real-Time Chunk Streaming
 cargo run --example realtime_stream --features std
-```
 
-### 5. MQTT over QUIC Client
-Demonstrates QUIC stream multiplexing and sub-millisecond datagram telemetry:
-```bash
+# MQTT over QUIC
 cargo run --example quic_client --features transport-quic
 ```
 
 ---
 
-## Architecture & Documentation
+## Documentation Links
 
-For in-depth architectural overviews, binary wire formats, state machines, and design specifications, check the [`docs/`](./docs) directory:
-
-- [**Application Flow & State Machines**](docs/appflow.md): Execution flow, keep-alive loops, and connection lifecycles.
-- [**Wire Protocol & Binary Schemas**](docs/backend_schema.md): Packet structures, variable-byte integer encoding, and property tables.
-- [**Design Brief**](docs/design_brief.md): Architectural philosophy, zero-copy safety models, and memory constraints.
-- [**Product Requirements (PRD)**](docs/prd.md): Functional and non-functional requirements and ecosystem targets.
-- [**Technical Design (TDD)**](docs/tdd.md): Subsystem designs, traits, and concurrency guarantees.
+- [**Application Flow & State Machines**](docs/appflow.md)
+- [**Wire Protocol & Binary Schemas**](docs/backend_schema.md)
+- [**Design Brief**](docs/design_brief.md)
+- [**Product Requirements (PRD)**](docs/prd.md)
+- [**Technical Design (TDD)**](docs/tdd.md)
 
 ---
 
 ## License
 
-This project is licensed under the **GNU General Public License v3.0 or later** ([GPL-3.0-or-later](LICENSE)).
+GNU General Public License v3.0 or later ([GPL-3.0-or-later](LICENSE)).

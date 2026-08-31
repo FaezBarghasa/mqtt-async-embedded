@@ -1,12 +1,12 @@
 # Wire Protocol Schemas & Binary Packet Layouts
 
-This document details the binary frame formats, variable header schemas, control packet representations, and error code mappings for `mqtt-async-embedded`.
+Binary frame layouts, control packet types, variable headers, and error mappings for `mqtt-async-embedded`.
 
 ---
 
-## 1. MQTT Fixed Header Binary Structure
+## 1. Fixed Header Binary Structure
 
-All MQTT control packets share a 2-byte minimum Fixed Header:
+Every MQTT control packet starts with a 2-byte minimum header:
 
 ```
  Bit   |  7  |  6  |  5  |  4  |  3  |  2  |  1  |  0  |
@@ -14,30 +14,30 @@ Byte 1 | MQTT Control Packet Type |     Flags / QoS     |
 Byte 2+| Remaining Length (1 - 4 bytes Variable Byte Integer)
 ```
 
-### Packet Type Enumeration (`ControlPacketType`)
+### Control Packet Types
 
-| Type Value | Name | Description | Direction |
+| Value | Type | Direction | Description |
 | :--- | :--- | :--- | :--- |
-| `0x01` | **`CONNECT`** | Client request to connect to Broker | Client → Broker |
-| `0x02` | **`CONNACK`** | Connect Acknowledgment | Broker → Client |
-| `0x03` | **`PUBLISH`** | Publish Message | Client ↔ Broker |
-| `0x04` | **`PUBACK`** | Publish Acknowledgment (QoS 1) | Client ↔ Broker |
-| `0x05` | **`PUBREC`** | Publish Received (QoS 2 delivery part 1) | Broker → Client |
-| `0x06` | **`PUBREL`** | Publish Release (QoS 2 delivery part 2) | Broker → Client |
-| `0x07` | **`PUBCOMP`** | Publish Complete (QoS 2 delivery part 3) | Broker → Client |
-| `0x08` | **`SUBSCRIBE`** | Subscribe Request | Client → Broker |
-| `0x09` | **`SUBACK`** | Subscribe Acknowledgment | Broker → Client |
-| `0x0A` | **`UNSUBSCRIBE`** | Unsubscribe Request | Client → Broker |
-| `0x0B` | **`UNSUBACK`** | Unsubscribe Acknowledgment | Broker → Client |
-| `0x0C` | **`PINGREQ`** | PING Request (Keep-alive) | Client → Broker |
-| `0x0D` | **`PINGRESP`** | PING Response | Broker → Client |
-| `0x0E` | **`DISCONNECT`** | Disconnect Notification | Client → Broker |
+| `0x01` | **`CONNECT`** | Client → Broker | Connection request |
+| `0x02` | **`CONNACK`** | Broker → Client | Connection acknowledge |
+| `0x03` | **`PUBLISH`** | Client ↔ Broker | Message transfer |
+| `0x04` | **`PUBACK`** | Client ↔ Broker | QoS 1 publish acknowledge |
+| `0x05` | **`PUBREC`** | Broker → Client | QoS 2 publish received |
+| `0x06` | **`PUBREL`** | Broker → Client | QoS 2 publish release |
+| `0x07` | **`PUBCOMP`** | Broker → Client | QoS 2 publish complete |
+| `0x08` | **`SUBSCRIBE`** | Client → Broker | Subscription request |
+| `0x09` | **`SUBACK`** | Broker → Client | Subscription acknowledge |
+| `0x0A` | **`UNSUBSCRIBE`** | Client → Broker | Unsubscribe request |
+| `0x0B` | **`UNSUBACK`** | Broker → Client | Unsubscribe acknowledge |
+| `0x0C` | **`PINGREQ`** | Client → Broker | Keep-alive heartbeat request |
+| `0x0D` | **`PINGRESP`** | Broker → Client | Keep-alive heartbeat response |
+| `0x0E` | **`DISCONNECT`** | Client → Broker | Disconnect notification |
 
 ---
 
-## 2. In-Memory Rust Packet Schemas (`src/packet.rs`)
+## 2. In-Memory Rust Structs (`src/packet.rs`)
 
-### 2.1. Quality of Service (QoS) Level
+### 2.1. Quality of Service (`QoS`)
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 #[repr(u8)]
@@ -48,8 +48,9 @@ pub enum QoS {
 }
 ```
 
-### 2.2. Last Will and Testament Schema (`Will<'a>`)
+### 2.2. Core Packet Types
 ```rust
+// Last Will and Testament
 pub struct Will<'a> {
     pub topic: &'a str,
     pub payload: &'a [u8],
@@ -57,10 +58,8 @@ pub struct Will<'a> {
     pub retain: bool,
     pub properties: Vec<Property<'a>, 8>,
 }
-```
 
-### 2.3. CONNECT Packet Schema (`Connect<'a>`)
-```rust
+// CONNECT / CONNACK
 pub struct Connect<'a> {
     pub clean_session: bool,
     pub keep_alive: u16,
@@ -70,19 +69,14 @@ pub struct Connect<'a> {
     pub will: Option<Will<'a>>,
     pub properties: Vec<Property<'a>, 8>,
 }
-```
 
-### 2.4. CONNACK Packet Schema (`ConnAck<'a>`)
-```rust
 pub struct ConnAck<'a> {
     pub session_present: bool,
     pub reason_code: u8,
     pub properties: Vec<Property<'a>, 8>,
 }
-```
 
-### 2.5. PUBLISH Packet Schema (`Publish<'a>`)
-```rust
+// PUBLISH
 pub struct Publish<'a> {
     pub dup: bool,
     pub qos: QoS,
@@ -92,10 +86,8 @@ pub struct Publish<'a> {
     pub payload: &'a [u8],
     pub properties: Vec<Property<'a>, 8>,
 }
-```
 
-### 2.6. SUBSCRIBE & SUBACK Schemas
-```rust
+// SUBSCRIBE / SUBACK
 pub struct Subscribe<'a> {
     pub packet_id: u16,
     pub topics: Vec<(&'a str, QoS), 8>,
@@ -107,10 +99,8 @@ pub struct SubAck<'a> {
     pub reason_codes: Vec<u8, 8>,
     pub properties: Vec<Property<'a>, 8>,
 }
-```
 
-### 2.7. UNSUBSCRIBE & UNSUBACK Schemas
-```rust
+// UNSUBSCRIBE / UNSUBACK
 pub struct Unsubscribe<'a> {
     pub packet_id: u16,
     pub topics: Vec<&'a str, 8>,
@@ -124,7 +114,7 @@ pub struct UnsubAck<'a> {
 }
 ```
 
-### 2.8. Stream Mode & Streaming Writer Schemas (`src/client.rs`)
+### 2.3. Streaming Types (`src/client.rs`)
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum StreamMode {
@@ -142,20 +132,20 @@ pub struct MqttStreamWriter<'c, T: MqttTransport> {
 
 ---
 
-## 3. Variable Byte Integer Encoding (MQTT Length Schema)
+## 3. Variable Byte Integer Length Table
 
-Remaining Length fields use a variable byte encoding scheme where 7 bits carry payload length data and bit 8 indicates continuation:
+7 bits data per byte. Bit 7 is continuation flag.
 
-| Length Bytes | Minimum Value | Maximum Value | Max Representation |
-| :--- | :--- | :--- | :--- |
-| 1 byte | `0` (`0x00`) | `127` (`0x7F`) | 127 B |
-| 2 bytes | `128` (`0x80 0x01`) | `16383` (`0xFF 0x7F`) | 16.383 KB |
-| 3 bytes | `16384` | `2097151` | 2.097 MB |
-| 4 bytes | `2097152` | `268435455` | 256.0 MB |
+| Bytes | Value Range | Max Capacity |
+| :--- | :--- | :--- |
+| **1 byte** | `0` (`0x00`) to `127` (`0x7F`) | 127 B |
+| **2 bytes** | `128` (`0x80 0x01`) to `16,383` (`0xFF 0x7F`) | 16.38 KB |
+| **3 bytes** | `16,384` to `2,097,151` | 2.09 MB |
+| **4 bytes** | `2,097,152` to `268,435,455` | 256.0 MB |
 
 ---
 
-## 4. Error Mapping Schema (`src/error.rs`)
+## 4. Error Types (`src/error.rs`)
 
 ```rust
 pub enum MqttError<T> {
@@ -168,9 +158,7 @@ pub enum MqttError<T> {
     BatchCapacityExceeded,
     QuicError(QuicErrorKind),
 }
-```
 
-```rust
 pub enum ProtocolError {
     InvalidPacketType(u8),
     InvalidResponse,
@@ -183,4 +171,3 @@ pub enum ProtocolError {
     UnsupportedQoS,
 }
 ```
-

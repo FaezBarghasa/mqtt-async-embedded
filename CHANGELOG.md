@@ -1,33 +1,31 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+All notable changes to this project are documented in this file.
+Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+---
 
 ## [1.2.0] - 2026-08-18
 
 ### Added
-- **Real-Time Streaming Option**:
+- **Real-Time Chunk Streaming**:
   - `StreamMode::RealTimeStreaming` and `MqttOptions::with_stream_mode()`.
-  - `begin_stream_publish()` & `MqttStreamWriter`: Zero-allocation streaming writer allowing microcontrollers to stream large or continuous payloads (audio, camera frames, DSP sensor sweeps) chunk-by-chunk directly across the transport.
-  - Dedicated real-time QUIC telemetry streams (`QuicMqttClient::open_telemetry_stream`).
-  - Dedicated runnable streaming example (`examples/realtime_stream.rs`).
-- Universal `embedded-io-async` adapters (`EmbeddedIoTransport` and `EmbeddedIoSplitTransport`) providing seamless compatibility with `esp-hal`, `esp-wifi`, `esp-idf-svc`, and `embassy-net`.
-- First-class support for **ESP32-S Series** (S2, S3) [Xtensa] and **ESP32-C Series** (C2, C3, C6, H2) [RISC-V].
-- Transport accessors on `MqttClient` and `QuicMqttClient` (`transport()`, `transport_mut()`, and `into_transport()`).
-- Zero-overhead `defmt` logging derivations (`#[cfg_attr(feature = "defmt", derive(defmt::Format))]`) across all packet schemas, client events, options, and error enums.
-- Dedicated ESP32 Wi-Fi & Embassy example (`examples/esp32_wifi_embassy.rs`).
-- Last Will and Testament (LWT) support in `MqttOptions` (`with_will`) and `Connect` packet encoding/decoding.
-- `UNSUBSCRIBE` and `UNSUBACK` packet structures, wire codec, and `MqttClient::unsubscribe()` API.
-- Support decoding `PUBREC`, `PUBREL`, `PUBCOMP`, and `PINGRESP` packets.
-- License file (`LICENSE` - GNU General Public License v3.0 or later).
-- Expanded integration and unit test suite (22 comprehensive tests total).
-- Automated GitHub Actions CI workflow covering `no_std`, `thumbv7em-none-eabihf`, `riscv32imc-unknown-none-elf`, `riscv32imac-unknown-none-elf`, `defmt`, clippy, and formatting.
+  - `begin_stream_publish()` and `MqttStreamWriter` for zero-RAM chunked publishing across transports.
+  - Dedicated QUIC telemetry streams (`QuicMqttClient::open_telemetry_stream`).
+  - Example: `examples/realtime_stream.rs`.
+- **Universal Adapters**: `EmbeddedIoTransport` and `EmbeddedIoSplitTransport` for `embedded-io-async` (`esp-hal`, `esp-wifi`, `esp-idf-svc`, `embassy-net`).
+- **ESP32 Support**: ESP32-S series (S2, S3 [Xtensa]) and ESP32-C series (C2, C3, C6, H2 [RISC-V]). Example: `examples/esp32_wifi_embassy.rs`.
+- **Transport Accessors**: `transport()`, `transport_mut()`, and `into_transport()` on `MqttClient` and `QuicMqttClient`.
+- **Microcontroller Logging**: `defmt` derivations across all packets, events, and errors.
+- **Protocol Features**:
+  - Last Will and Testament (LWT) support in `MqttOptions` and `Connect`.
+  - `UNSUBSCRIBE` and `UNSUBACK` packet codecs and `MqttClient::unsubscribe()` API.
+  - Packet decoders for `PUBREC`, `PUBREL`, `PUBCOMP`, and `PINGRESP`.
+- **CI & Tests**: GitHub Actions matrix for `no_std`, `thumbv7em`, `riscv32`, `defmt`, clippy, formatting, and 22 integration/unit tests.
 
 ### Fixed
-- Bounds check panics on parsing MQTT v5 User Properties (`0x26`) with corrupted/truncated length headers.
-- Bounds check panics on encoding packets (`Connect`, `Publish`, `PubAck`, `Subscribe`, `Disconnect`) into zero-length or undersized buffers.
-- Return explicit `ProtocolError::UnsupportedQoS` when attempting to publish with `QoS::ExactlyOnce` rather than producing invalid protocol sequences.
-- Fixed `get_next_packet_id()` starting sequence.
-- Cleaned up repository structure and removed deprecated `example/` directory.
+- Fixed bounds check panics on corrupted/truncated MQTT v5 User Properties (`0x26`).
+- Fixed bounds check panics on encoding packets into zero-length or undersized buffers.
+- Return explicit `ProtocolError::UnsupportedQoS` when publishing with `QoS::ExactlyOnce`.
+- Fixed `get_next_packet_id()` initialization sequence.
+- Cleaned up root directory and removed legacy `example/` path.
