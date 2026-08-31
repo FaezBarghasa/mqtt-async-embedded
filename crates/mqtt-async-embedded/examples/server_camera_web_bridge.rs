@@ -72,7 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .await;
 
             // Publish periodic AI motion detection events
-            if frame_count % 30 == 0 {
+            if frame_count.is_multiple_of(30) {
                 let event_json = format!(
                     r#"{{"event":"motion_detected","confidence":0.98,"frame":{frame_count}}}"#
                 );

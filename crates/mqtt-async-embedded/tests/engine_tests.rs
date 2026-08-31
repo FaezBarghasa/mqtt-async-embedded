@@ -80,9 +80,7 @@ fn test_raw_packet_frame_iter_multipacket() {
     cursor += l1;
 
     let ping = PingReq;
-    let l2 = ping
-        .encode(&mut buffer[cursor..], MqttVersion::V3)
-        .unwrap();
+    let l2 = ping.encode(&mut buffer[cursor..], MqttVersion::V3).unwrap();
     cursor += l2;
 
     let p2 = Publish::new("topic2", b"payload2", QoS::AtLeastOnce);
@@ -154,8 +152,7 @@ fn test_unsubscribe_encode_decode_roundtrip() {
     unsub.add_topic("sensors/humidity").unwrap();
 
     let len = unsub.encode(&mut buf, MqttVersion::V3).unwrap();
-    let decoded =
-        mqtt_packet::Unsubscribe::decode(&buf[..len], MqttVersion::V3).unwrap();
+    let decoded = mqtt_packet::Unsubscribe::decode(&buf[..len], MqttVersion::V3).unwrap();
 
     assert_eq!(decoded.packet_id, 101);
     assert_eq!(decoded.topics.len(), 2);

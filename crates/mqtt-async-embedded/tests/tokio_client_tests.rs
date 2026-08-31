@@ -6,14 +6,8 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use bytes::Bytes;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
-use tokio::sync::Mutex;
-use tokio::time;
-
-use mqtt_async_embedded::bridges::{
-    CameraMjpegBridge, MqttBroadcastHub, SlintStreamBinding, TelemetrySseBridge,
-};
+use futures_util::StreamExt;
+use mqtt_async_embedded::bridges::{MqttBroadcastHub, SlintStreamBinding};
 use mqtt_async_embedded::client::MqttVersion;
 use mqtt_async_embedded::packet::{self, EncodePacket, MqttPacket, QoS};
 use mqtt_async_embedded::tokio_client::{
@@ -21,6 +15,10 @@ use mqtt_async_embedded::tokio_client::{
     PublishMessage, ReconnectPolicy,
 };
 use mqtt_async_embedded::util::RawPacketFrameIter;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
+use tokio::sync::Mutex;
+use tokio::time;
 
 /// A lightweight mock MQTT broker running on an ephemeral TCP port for automated integration testing.
 struct MockBroker {
@@ -67,9 +65,7 @@ impl MockBroker {
                                 let iter = RawPacketFrameIter::new(&buf[..rx_len]);
                                 for frame in iter.flatten() {
                                     consumed += frame.len();
-                                    if let Ok(Some(pkt)) =
-                                        packet::decode(frame, MqttVersion::V3)
-                                    {
+                                    if let Ok(Some(pkt)) = packet::decode(frame, MqttVersion::V3) {
                                         match pkt {
                                             MqttPacket::Connect(_) => {
                                                 let connack = [0x20, 0x02, 0x00, 0x00];
@@ -377,8 +373,7 @@ async fn test_tokio_client_multithreaded_datastream_recovery() {
 
 #[tokio::test]
 async fn test_tokio_client_web_server_camera_mjpeg_and_sse_bridge() {
-    use futures_util::StreamExt;
-    use mqtt_async_embedded::tokio_client::{CameraMjpegBridge, TelemetrySseBridge};
+    use mqtt_async_embedded::bridges::{CameraMjpegBridge, TelemetrySseBridge};
 
     let broker = MockBroker::start().await;
 
@@ -387,9 +382,10 @@ async fn test_tokio_client_web_server_camera_mjpeg_and_sse_bridge() {
     wait_for_connected(&client).await;
 
     // 1. Create a broadcast hub for camera video topic
-    let camera_hub = MqttBroadcastHub::new(&client, "security/camera/01/mjpeg", QoS::AtMostOnce, 32)
-        .await
-        .expect("Create broadcast hub failed");
+    let camera_hub =
+        MqttBroadcastHub::new(&client, "security/camera/01/mjpeg", QoS::AtMostOnce, 32)
+            .await
+            .expect("Create broadcast hub failed");
 
     // 2. Create web streaming bridges (simulating Axum/Actix HTTP body handlers)
     let mut mjpeg_stream = CameraMjpegBridge::new(&camera_hub);

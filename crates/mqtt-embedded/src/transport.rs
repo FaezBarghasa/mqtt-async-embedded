@@ -2,8 +2,8 @@
 
 #![allow(async_fn_in_trait)]
 
-use core::fmt::Debug;
 pub use crate::error::ErrorPlaceHolder;
+use core::fmt::Debug;
 
 #[cfg(feature = "transport-quic")]
 extern crate std;
@@ -48,9 +48,12 @@ pub trait MqttQuicTransport {
     type SendStream: MqttQuicSendStream<Error = Self::Error>;
     type RecvStream: MqttQuicRecvStream<Error = Self::Error>;
 
-    async fn open_bi_stream(&mut self) -> Result<(Self::SendStream, Self::RecvStream), Self::Error>;
+    async fn open_bi_stream(&mut self)
+    -> Result<(Self::SendStream, Self::RecvStream), Self::Error>;
     async fn open_uni_stream(&mut self) -> Result<Self::SendStream, Self::Error>;
-    async fn accept_bi_stream(&mut self) -> Result<(Self::SendStream, Self::RecvStream), Self::Error>;
+    async fn accept_bi_stream(
+        &mut self,
+    ) -> Result<(Self::SendStream, Self::RecvStream), Self::Error>;
     async fn send_datagram(&mut self, data: &[u8]) -> Result<(), Self::Error>;
     async fn recv_datagram(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error>;
 }

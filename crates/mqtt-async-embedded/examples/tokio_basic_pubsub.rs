@@ -78,7 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 6. Graceful shutdown
     client.disconnect().await?;
-    let _ = sub_task.abort();
+    sub_task.abort();
     println!("[*] Disconnected gracefully. Demo complete!");
 
     Ok(())

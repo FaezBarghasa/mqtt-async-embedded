@@ -14,15 +14,15 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{self, Instant};
 
+use crate::options::{ClientOptions, DropStrategy};
+use crate::router::TopicRouter;
+use crate::transport::{BoxedTransport, connect_transport};
+use crate::types::{ClientError, ClientRequest, ConnectionStatus, PublishMessage};
 use mqtt_embedded::ProtocolError;
 use mqtt_packet::{
     Connect, Disconnect, EncodePacket, MqttPacket, PingReq, PubAck, Publish, QoS,
     RawPacketFrameIter, Subscribe, Unsubscribe, Will, decode,
 };
-use crate::options::{ClientOptions, DropStrategy};
-use crate::router::TopicRouter;
-use crate::transport::{BoxedTransport, connect_transport};
-use crate::types::{ClientError, ClientRequest, ConnectionStatus, PublishMessage};
 
 enum IncomingAction {
     Publish(PublishMessage),

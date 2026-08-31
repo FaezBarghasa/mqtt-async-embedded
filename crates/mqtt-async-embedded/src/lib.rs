@@ -60,8 +60,8 @@ pub use mqtt_embedded::{
 
 pub use mqtt_packet::{
     ConnAck, Connect, DecodePacket, Disconnect, EncodePacket, MqttPacket, MqttVersion, PacketError,
-    PingReq, PingResp, Property, PubAck, PubComp, PubRec, PubRel, Publish, QoS,
-    RawPacketFrameIter, SubAck, Subscribe, UnsubAck, Unsubscribe, Will, decode,
+    PingReq, PingResp, Property, PubAck, PubComp, PubRec, PubRel, Publish, QoS, RawPacketFrameIter,
+    SubAck, Subscribe, UnsubAck, Unsubscribe, Will, decode,
 };
 
 #[cfg(feature = "transport-smoltcp")]
@@ -72,7 +72,7 @@ pub use mqtt_tokio::{
     AsyncClient as TokioAsyncClient, Client as TokioClient, ClientError as TokioClientError,
     ClientOptions as TokioClientOptions, ConnectionStatus as TokioConnectionStatus,
     DataRecoveryPolicy, DropStrategy, OfflineQueuePolicy, PublishMessage as TokioPublishMessage,
-    ReconnectPolicy, TopicRouter, TopicSubscription, SmartTransport,
+    ReconnectPolicy, SmartTransport, TopicRouter, TopicSubscription,
 };
 
 #[cfg(feature = "tokio-client")]

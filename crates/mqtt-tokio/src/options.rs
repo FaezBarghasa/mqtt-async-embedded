@@ -8,8 +8,8 @@ use std::format;
 use std::string::{String, ToString};
 use std::time::Duration;
 
-use mqtt_packet::MqttVersion;
 use crate::types::{ClientError, DataRecoveryPolicy, PublishMessage};
+use mqtt_packet::MqttVersion;
 
 /// Strategy used when the client's offline queue reaches capacity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

@@ -67,7 +67,10 @@ pub fn write_variable_byte_integer(
 }
 
 /// Writes a variable-byte integer starting at index 0 of `buf` and returns the number of bytes written.
-pub fn write_variable_byte_integer_len(buf: &mut [u8], mut val: usize) -> Result<usize, PacketError> {
+pub fn write_variable_byte_integer_len(
+    buf: &mut [u8],
+    mut val: usize,
+) -> Result<usize, PacketError> {
     let mut i = 0;
     loop {
         let mut encoded_byte = (val % 128) as u8;

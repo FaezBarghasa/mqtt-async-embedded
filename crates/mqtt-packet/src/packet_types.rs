@@ -113,7 +113,11 @@ impl<'a> Publish<'a> {
             qos,
             retain: false,
             topic,
-            packet_id: if qos == QoS::AtMostOnce { None } else { Some(1) },
+            packet_id: if qos == QoS::AtMostOnce {
+                None
+            } else {
+                Some(1)
+            },
             payload,
             properties: Vec::new(),
         }

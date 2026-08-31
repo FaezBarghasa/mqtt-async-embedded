@@ -57,7 +57,9 @@ impl<T: TransportError> From<PacketError> for MqttError<T> {
             PacketError::BufferTooSmall => MqttError::BufferTooSmall,
             PacketError::IncompletePacket => MqttError::Protocol(ProtocolError::IncompletePacket),
             PacketError::MalformedPacket => MqttError::Protocol(ProtocolError::MalformedPacket),
-            PacketError::InvalidPacketType(t) => MqttError::Protocol(ProtocolError::InvalidPacketType(t)),
+            PacketError::InvalidPacketType(t) => {
+                MqttError::Protocol(ProtocolError::InvalidPacketType(t))
+            }
             PacketError::InvalidUtf8String => MqttError::Protocol(ProtocolError::InvalidUtf8String),
             PacketError::TooManyProperties => MqttError::Protocol(ProtocolError::TooManyProperties),
             PacketError::BatchCapacityExceeded => MqttError::BatchCapacityExceeded,

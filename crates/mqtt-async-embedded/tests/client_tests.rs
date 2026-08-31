@@ -132,11 +132,15 @@ async fn test_client_publish_qos0_and_qos1() {
     assert_eq!(sent_qos1[0] >> 4, 3); // PUBLISH
     assert_eq!((sent_qos1[0] >> 1) & 0x03, 1); // QoS 1
 
-    // 3. Publish QoS 2 should be rejected
-    let res = client
+    // 3. Publish QoS 2
+    client
         .publish("telemetry/q2", b"data", QoS::ExactlyOnce)
-        .await;
-    assert_eq!(res, Err(MqttError::Protocol(ProtocolError::UnsupportedQoS)));
+        .await
+        .unwrap();
+    let sent_qos2 = transport.drain_outgoing();
+    assert!(!sent_qos2.is_empty());
+    assert_eq!(sent_qos2[0] >> 4, 3); // PUBLISH
+    assert_eq!((sent_qos2[0] >> 1) & 0x03, 2); // QoS 2
 }
 
 #[tokio::test]

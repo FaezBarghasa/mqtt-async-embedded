@@ -5,9 +5,9 @@
 use embassy_time::{Duration, Instant};
 use heapless::Vec;
 use mqtt_packet::{
-    Connect, Disconnect, EncodePacket, MqttPacket, MqttVersion, PingReq,
-    Property, PubAck, PubComp, PubRec, PubRel, Publish, QoS, RawPacketFrameIter,
-    SubAck, Subscribe, UnsubAck, Unsubscribe, Will, decode,
+    Connect, Disconnect, EncodePacket, MqttPacket, MqttVersion, PingReq, Property, PubAck, PubComp,
+    PubRec, PubRel, Publish, QoS, RawPacketFrameIter, SubAck, Subscribe, UnsubAck, Unsubscribe,
+    Will, decode,
 };
 
 use crate::error::{ConnectReasonCode, MqttError, ProtocolError};
@@ -132,8 +132,13 @@ pub enum ConnectionState {
 }
 
 /// Asynchronous zero-allocation embedded MQTT client.
-pub struct MqttClient<'a, T, const MAX_TOPICS: usize = 8, const BUF_SIZE: usize = 1024, const MAX_INFLIGHT: usize = 8>
-where
+pub struct MqttClient<
+    'a,
+    T,
+    const MAX_TOPICS: usize = 8,
+    const BUF_SIZE: usize = 1024,
+    const MAX_INFLIGHT: usize = 8,
+> where
     T: MqttTransport,
 {
     transport: T,
@@ -372,14 +377,14 @@ where
         flags |= (qos as u8) << 1;
         header_buf[0] = flags;
 
-        let len_bytes = mqtt_packet::write_variable_byte_integer_len(
-            &mut header_buf[1..],
-            remaining_len,
-        )
-        .map_err(MqttError::from)?;
+        let len_bytes =
+            mqtt_packet::write_variable_byte_integer_len(&mut header_buf[1..], remaining_len)
+                .map_err(MqttError::from)?;
 
         let total_fixed_header_len = 1 + len_bytes;
-        self.transport.send(&header_buf[..total_fixed_header_len]).await?;
+        self.transport
+            .send(&header_buf[..total_fixed_header_len])
+            .await?;
 
         let mut var_buf = [0u8; 256];
         let mut var_cursor = 0;
@@ -399,14 +404,14 @@ where
         self.transport.send(&var_buf[..var_cursor]).await?;
         self.last_tx_time = Instant::now();
 
-        Ok(MqttStreamWriter::new(&mut self.transport, total_payload_len))
+        Ok(MqttStreamWriter::new(
+            &mut self.transport,
+            total_payload_len,
+        ))
     }
 
     /// Subscribes to one or more topic filters.
-    pub async fn subscribe(
-        &mut self,
-        topics: &[(&str, QoS)],
-    ) -> Result<u16, MqttError<T::Error>>
+    pub async fn subscribe(&mut self, topics: &[(&str, QoS)]) -> Result<u16, MqttError<T::Error>>
     where
         T::Error: TransportError,
     {
@@ -486,16 +491,15 @@ where
         match parsed {
             Some(MqttPacket::Publish(p)) => {
                 // Auto acknowledge QoS 1 and QoS 2
-                if p.qos == QoS::AtLeastOnce {
-                    if let Some(pid) = p.packet_id {
+                match (p.qos, p.packet_id) {
+                    (QoS::AtLeastOnce, Some(pid)) => {
                         let puback = PubAck::new(pid);
                         let len = puback
                             .encode(&mut self.tx_buffer, self.options.version)
                             .map_err(MqttError::from)?;
                         self.transport.send(&self.tx_buffer[..len]).await?;
                     }
-                } else if p.qos == QoS::ExactlyOnce {
-                    if let Some(pid) = p.packet_id {
+                    (QoS::ExactlyOnce, Some(pid)) => {
                         let pubrec = PubRec::new(pid);
                         let len = pubrec
                             .encode(&mut self.tx_buffer, self.options.version)
@@ -503,6 +507,7 @@ where
                         self.transport.send(&self.tx_buffer[..len]).await?;
                         let _ = self.inflight.track_inbound_qos2::<T::Error>(pid);
                     }
+                    _ => {}
                 }
 
                 Ok(Some(MqttEvent::Publish(p)))
@@ -571,16 +576,15 @@ where
             if let Some(packet) = decode(frame, self.options.version)? {
                 match packet {
                     MqttPacket::Publish(p) => {
-                        if p.qos == QoS::AtLeastOnce {
-                            if let Some(pid) = p.packet_id {
+                        match (p.qos, p.packet_id) {
+                            (QoS::AtLeastOnce, Some(pid)) => {
                                 let puback = PubAck::new(pid);
                                 let len = puback
                                     .encode(&mut self.tx_buffer, self.options.version)
                                     .map_err(MqttError::from)?;
                                 self.transport.send(&self.tx_buffer[..len]).await?;
                             }
-                        } else if p.qos == QoS::ExactlyOnce {
-                            if let Some(pid) = p.packet_id {
+                            (QoS::ExactlyOnce, Some(pid)) => {
                                 let pubrec = PubRec::new(pid);
                                 let len = pubrec
                                     .encode(&mut self.tx_buffer, self.options.version)
@@ -588,6 +592,7 @@ where
                                 self.transport.send(&self.tx_buffer[..len]).await?;
                                 let _ = self.inflight.track_inbound_qos2::<T::Error>(pid);
                             }
+                            _ => {}
                         }
                         let _ = events.push(MqttEvent::Publish(p));
                     }
@@ -674,22 +679,33 @@ impl<'a, Q: MqttQuicTransport, const BUF_SIZE: usize> QuicMqttClient<'a, Q, BUF_
         }
     }
 
-    pub async fn publish_datagram(&mut self, topic: &str, payload: &[u8]) -> Result<(), MqttError<Q::Error>>
+    pub async fn publish_datagram(
+        &mut self,
+        topic: &str,
+        payload: &[u8],
+    ) -> Result<(), MqttError<Q::Error>>
     where
         Q::Error: TransportError,
     {
         let mut buf = [0u8; 1024];
         let mut cursor = 0;
-        cursor += mqtt_packet::write_utf8_string(&mut buf[cursor..], topic).map_err(MqttError::from)?;
+        cursor +=
+            mqtt_packet::write_utf8_string(&mut buf[cursor..], topic).map_err(MqttError::from)?;
         if cursor + payload.len() > buf.len() {
-            return Err(MqttError::QuicError(crate::error::QuicErrorKind::DatagramTooLarge));
+            return Err(MqttError::QuicError(
+                crate::error::QuicErrorKind::DatagramTooLarge,
+            ));
         }
         buf[cursor..cursor + payload.len()].copy_from_slice(payload);
-        self.transport.send_datagram(&buf[..cursor + payload.len()]).await?;
+        self.transport
+            .send_datagram(&buf[..cursor + payload.len()])
+            .await?;
         Ok(())
     }
 
-    pub async fn recv_datagram<'p>(&'p mut self) -> Result<Option<MqttEvent<'p>>, MqttError<Q::Error>>
+    pub async fn recv_datagram<'p>(
+        &'p mut self,
+    ) -> Result<Option<MqttEvent<'p>>, MqttError<Q::Error>>
     where
         Q::Error: TransportError,
     {

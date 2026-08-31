@@ -73,7 +73,12 @@ async fn main() {
         .with_version(MqttVersion::V5)
         .with_keep_alive(Duration::from_secs(30))
         .with_clean_session(true)
-        .with_will("devices/esp32/status", b"offline", QoS::AtLeastOnce, true);
+        .with_will(mqtt_async_embedded::packet::Will::new(
+            "devices/esp32/status",
+            b"offline",
+            QoS::AtLeastOnce,
+            true,
+        ));
 
     println!("1. Initialized MqttOptions with LWT & MQTT v5.");
 

@@ -2,7 +2,7 @@
 //!
 //! Allows streaming payloads directly over the wire chunk-by-chunk or from DMA buffers.
 
-use crate::error::MqttError;
+use crate::error::{MqttError, ProtocolError};
 use crate::transport::{MqttTransport, TransportError};
 
 /// Active stream writer for publishing arbitrary length payloads with zero buffer allocations.
@@ -27,7 +27,7 @@ impl<'a, T: MqttTransport> MqttStreamWriter<'a, T> {
         T::Error: TransportError,
     {
         if chunk.len() > self.bytes_remaining {
-            return Err(MqttError::Protocol(crate::error::ProtocolError::PayloadTooLarge));
+            return Err(MqttError::BufferTooSmall);
         }
 
         self.transport.send(chunk).await?;
@@ -50,7 +50,7 @@ impl<'a, T: MqttTransport> MqttStreamWriter<'a, T> {
     {
         let total: usize = slices.iter().map(|s| s.len()).sum();
         if total > self.bytes_remaining {
-            return Err(MqttError::Protocol(crate::error::ProtocolError::PayloadTooLarge));
+            return Err(MqttError::BufferTooSmall);
         }
 
         self.transport.send_vectored(slices).await?;
@@ -81,7 +81,7 @@ impl<'a, T: MqttTransport> MqttStreamWriter<'a, T> {
         if self.bytes_remaining == 0 {
             Ok(())
         } else {
-            Err(MqttError::Protocol(crate::error::ProtocolError::PayloadTooLarge))
+            Err(MqttError::Protocol(ProtocolError::IncompletePacket))
         }
     }
 }

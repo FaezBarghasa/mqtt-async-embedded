@@ -77,7 +77,10 @@ impl<const MAX_INFLIGHT: usize> InflightQueue<MAX_INFLIGHT> {
     }
 
     /// Tracks an incoming QoS 2 publish that we acknowledged with PUBREC.
-    pub fn track_inbound_qos2<T: TransportError>(&mut self, packet_id: u16) -> Result<(), MqttError<T>> {
+    pub fn track_inbound_qos2<T: TransportError>(
+        &mut self,
+        packet_id: u16,
+    ) -> Result<(), MqttError<T>> {
         if let Some(existing) = self.entries.iter_mut().find(|e| e.packet_id == packet_id) {
             existing.status = InflightStatus::AwaitingPubRel;
             return Ok(());

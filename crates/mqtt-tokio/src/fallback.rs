@@ -16,11 +16,8 @@ pub struct SmartTransport;
 impl SmartTransport {
     /// Attempts to connect using the configured primary transport, falling back to secondary if configured.
     pub async fn connect(options: &ClientOptions) -> Result<BoxedTransport, ClientError> {
-        let primary_result = tokio::time::timeout(
-            Duration::from_secs(5),
-            connect_transport(&options.target),
-        )
-        .await;
+        let primary_result =
+            tokio::time::timeout(Duration::from_secs(5), connect_transport(&options.target)).await;
 
         match primary_result {
             Ok(Ok(transport)) => {
@@ -33,11 +30,7 @@ impl SmartTransport {
             }
             Err(_) => {
                 warn!("Primary transport connection timed out. Attempting fallback...");
-                Self::attempt_fallback(
-                    options,
-                    ClientError::ConnectionRefused(3),
-                )
-                .await
+                Self::attempt_fallback(options, ClientError::ConnectionRefused(3)).await
             }
         }
     }

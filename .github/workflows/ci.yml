@@ -28,8 +28,8 @@ jobs:
       - name: Format Check
         run: cargo fmt --all -- --check
 
-      - name: Clippy (All Features)
-        run: cargo clippy --all-features -- -D warnings
+      - name: Clippy Workspace
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   test:
     name: Test Host (${{ matrix.os }})
@@ -47,14 +47,14 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Test (All Features)
-        run: cargo test --all-features
+      - name: Test Workspace (All Features)
+        run: cargo test --workspace --all-features
 
       - name: Check Examples
-        run: cargo check --all-features --examples
+        run: cargo check --workspace --all-features --examples
 
       - name: Check Documentation
-        run: cargo doc --all-features --no-deps
+        run: cargo doc --workspace --all-features --no-deps
 
   embedded:
     name: Embedded no_std (${{ matrix.target }})
@@ -78,14 +78,14 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Pure no_std Build
-        run: cargo build --target ${{ matrix.target }} --no-default-features
+      - name: Pure no_std Build (mqtt-packet & mqtt-embedded)
+        run: |
+          cargo check --package mqtt-packet --target ${{ matrix.target }} --no-default-features
+          cargo check --package mqtt-embedded --target ${{ matrix.target }} --no-default-features
+          cargo check --package mqtt-async-embedded --target ${{ matrix.target }} --no-default-features
 
       - name: no_std + defmt logging
-        run: cargo check --target ${{ matrix.target }} --no-default-features --features defmt
-
-      - name: no_std + MQTT v5
-        run: cargo check --target ${{ matrix.target }} --no-default-features --features v5
-
-      - name: no_std + defmt + MQTT v5
-        run: cargo check --target ${{ matrix.target }} --no-default-features --features defmt,v5
+        run: |
+          cargo check --package mqtt-packet --target ${{ matrix.target }} --no-default-features --features defmt
+          cargo check --package mqtt-embedded --target ${{ matrix.target }} --no-default-features --features defmt
+          cargo check --package mqtt-async-embedded --target ${{ matrix.target }} --no-default-features --features defmt

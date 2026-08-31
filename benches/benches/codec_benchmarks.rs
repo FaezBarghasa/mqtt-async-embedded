@@ -8,7 +8,9 @@ fn bench_publish_encode_decode(c: &mut Criterion) {
 
     c.bench_function("publish_encode_256b", |b| {
         b.iter(|| {
-            let len = pub_pkt.encode(black_box(&mut buf), MqttVersion::V3_1_1).unwrap();
+            let len = pub_pkt
+                .encode(black_box(&mut buf), MqttVersion::V3_1_1)
+                .unwrap();
             black_box(len);
         })
     });

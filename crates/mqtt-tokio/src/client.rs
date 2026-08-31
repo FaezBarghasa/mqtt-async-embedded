@@ -11,12 +11,12 @@ use bytes::Bytes;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
-use mqtt_packet::QoS;
 use crate::eventloop::EventLoop;
 use crate::options::ClientOptions;
 use crate::types::{
     ClientError, ClientRequest, ConnectionStatus, PublishMessage, TopicSubscription,
 };
+use mqtt_packet::QoS;
 
 /// A lightweight, cheaply cloneable handle to communicate with the MQTT background driver.
 #[derive(Clone)]
@@ -182,12 +182,7 @@ impl AsyncClient {
         qos: QoS,
         journal_capacity: usize,
     ) -> crate::stream::DataStreamProducer {
-        crate::stream::DataStreamProducer::new(
-            self.clone(),
-            topic,
-            qos,
-            journal_capacity,
-        )
+        crate::stream::DataStreamProducer::new(self.clone(), topic, qos, journal_capacity)
     }
 
     /// Subscribes to a sequenced data stream with out-of-order reassembly and gap recovery.
@@ -198,10 +193,7 @@ impl AsyncClient {
         reorder_window: usize,
     ) -> Result<crate::stream::DataStreamConsumer, ClientError> {
         let sub = self.subscribe_stream(topic, qos).await?;
-        Ok(crate::stream::DataStreamConsumer::new(
-            sub,
-            reorder_window,
-        ))
+        Ok(crate::stream::DataStreamConsumer::new(sub, reorder_window))
     }
 
     /// Unsubscribes from a topic filter.

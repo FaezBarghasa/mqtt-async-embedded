@@ -2,252 +2,152 @@
 
 [![Crates.io](https://img.shields.io/crates/v/mqtt-async-embedded.svg)](https://crates.io/crates/mqtt-async-embedded)
 [![Documentation](https://docs.rs/mqtt-async-embedded/badge.svg)](https://docs.rs/mqtt-async-embedded)
-[![License: GPL-3.0-or-later](https://img.shields.io/badge/License-GPL_v3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 [![CI](https://github.com/FaezBarghasa/mqtt-async-embedded/actions/workflows/ci.yml/badge.svg)](https://github.com/FaezBarghasa/mqtt-async-embedded/actions/workflows/ci.yml)
 [![no_std](https://img.shields.io/badge/no__std-compatible-success.svg)](https://docs.rust-embedded.org/book/intro/no-std.html)
 
-Dual-mode, asynchronous MQTT client in Rust (2024 edition):
-1. **Embedded Mode (`no_std`, `no_alloc`)**: Zero heap allocations, fixed static buffers for bare-metal MCUs (ESP32, STM32, Cortex-M, RISC-V).
-2. **Standard Tokio Mode (`tokio-client`)**: High-throughput, multi-threaded data streams, sliding journal session recovery, web server bridges (Axum/Actix), and Slint GUI integration for Linux, Windows, macOS, and Android.
+**`mqtt-async-embedded`** is a modular, zero-allocation, asynchronous MQTT client written in pure Rust (2024 edition).
+
+Designed to be the fastest, safest, and most flexible MQTT ecosystem in Rust, it spans from **bare-metal microcontrollers** (`no_std`, `no_alloc`) to **high-throughput cloud services, Web servers (Axum/Actix), and Slint UI applications**.
 
 ---
 
-## At a Glance
+## Workspace Subcrates
 
-| Feature | Embedded (`no_std`) | Standard (`tokio-client`) |
+| Crate | Target / Environment | Description |
 | :--- | :--- | :--- |
-| **Heap Allocation** | Zero (`no_alloc`) | `bytes::Bytes` zero-copy pipeline |
-| **Buffer Management** | Compile-time fixed arrays (`heapless`) | Dynamic channel-driven queues |
-| **Transports** | `embedded-io-async`, TCP, UART, QUIC | TCP (`TCP_NODELAY`), TLS, QUIC, Named Pipes, Unix Sockets |
-| **High Throughput** | Batch polling, chunked stream publishing | Multi-packet burst publishing (`publish_batch`) |
-| **Recovery** | Manual reconnect loop | Automatic reconnect, in-flight retransmission, subscription restore |
-| **Routing** | Single event loop poll | Trie-based topic stream router (`subscribe_stream`) |
-| **Web & GUI** | Direct Slint MCU render loop integration | Axum/Actix MJPEG & SSE bridges, Slint UI property binders |
+| **[`mqtt-packet`](crates/mqtt-packet)** | `no_std`, `no_alloc` | Zero-allocation MQTT v3.1.1 & v5 encoder/decoder with proptest validation. |
+| **[`mqtt-embedded`](crates/mqtt-embedded)** | `no_std`, `no_alloc` (Embassy) | Bare-metal MCU async client, bounded in-flight QoS 1 & 2, direct DMA streaming. |
+| **[`mqtt-tokio`](crates/mqtt-tokio)** | `std` (Tokio Runtime) | High-throughput host client with offline queueing, topic routing & smart QUIC fallback. |
+| **[`mqtt-bridges`](crates/mqtt-bridges)** | `std` (Tokio) | Web server MJPEG multipart & SSE stream formatters, and Slint UI bindings. |
+| **[`mqtt-async-embedded`](crates/mqtt-async-embedded)** | Facade / Umbrella | Root facade crate providing 100% backward compatibility and feature toggles. |
+
+---
+
+## Comparison Matrix
+
+| Feature | `mqtt-async-embedded` | `rumqttc` | `minimq` |
+| :--- | :---: | :---: | :---: |
+| **License** | **MIT / Apache-2.0** | Apache-2.0 | MIT / Apache-2.0 |
+| **`no_std` / `no_alloc` Bare Metal** | ✅ Full Support | ❌ Requires heap | ✅ `no_alloc` only |
+| **Embedded Async Runtime** | ✅ **Embassy Native** | ❌ (Tokio only) | ❌ Non-async poll |
+| **MQTT v5 & v3.1.1** | ✅ Both | ✅ Both | ⚠️ v5 Only |
+| **QoS 0, 1, and 2** | ✅ Full State Machine | ✅ Full | ⚠️ QoS 0 & 1 only |
+| **Zero-RAM DMA Streaming** | ✅ `MqttStreamWriter` | ❌ | ❌ |
+| **Multi-Packet Batching** | ✅ `publish_batch` / `poll_batch` | ❌ | ❌ |
+| **MQTT over QUIC (HTTP/3)** | ✅ QUIC + Smart Fallback | ❌ | ❌ |
+| **Web Bridges (Axum/Actix)** | ✅ Native MJPEG & SSE | ❌ | ❌ |
+| **Slint UI Direct Binding** | ✅ Auto UI Binders | ❌ | ❌ |
+| **Fuzz & Proptest Suite** | ✅ Built-in | ⚠️ Partial | ⚠️ Partial |
 
 ---
 
 ## Quickstart
 
-Add to `Cargo.toml`:
+### 1. Bare-Metal Microcontrollers (`no_std`, `no_alloc`)
 
+Add to `Cargo.toml`:
 ```toml
 [dependencies]
-# Bare-metal MCUs (no_std, zero heap)
-mqtt-async-embedded = "1.5.1"
-
-# Standard host / edge / mobile (Tokio, TLS, QUIC)
-mqtt-async-embedded = { version = "1.5.1", features = ["tokio-client", "tokio-tls", "tokio-quic"] }
+mqtt-embedded = "1.6.0"
+# Or using the facade crate:
+mqtt-async-embedded = { version = "1.6.0", default-features = false }
 ```
 
----
+```rust,no_run
+use embassy_time::Duration;
+use mqtt_embedded::client::{MqttClient, MqttEvent, MqttOptions};
+use mqtt_packet::QoS;
+use mqtt_embedded::EmbeddedIoTransport;
 
-## 1. Tokio Client Quickstart
+#[embassy_executor::task]
+async fn mqtt_task(socket: MyEspWifiSocket) {
+    let options = MqttOptions::new("esp32-sensor", "192.168.1.1", 1883)
+        .with_keep_alive(Duration::from_secs(30));
+
+    let transport = EmbeddedIoTransport::new(socket);
+    let mut client: MqttClient<_, 8, 1024> = MqttClient::new(transport, options);
+
+    client.connect().await.expect("MQTT connection failed");
+
+    // Publish telemetry with zero heap allocations
+    client.publish("sensors/temperature", b"24.5", QoS::AtLeastOnce).await.unwrap();
+
+    // Event loop poll
+    loop {
+        if let Some(event) = client.poll().await.unwrap() {
+            match event {
+                MqttEvent::Publish(pub_msg) => {
+                    // Process message
+                }
+                _ => {}
+            }
+        }
+    }
+}
+```
+
+### 2. High-Performance Host Client (Tokio, Web Bridges, Slint UI)
+
+Add to `Cargo.toml`:
+```toml
+[dependencies]
+mqtt-tokio = "1.6.0"
+mqtt-bridges = "1.6.0"
+# Or using the facade:
+mqtt-async-embedded = { version = "1.6.0", features = ["tokio-client"] }
+```
 
 ```rust,no_run
-use std::time::Duration;
 use bytes::Bytes;
-use mqtt_async_embedded::packet::QoS;
-use mqtt_async_embedded::tokio_client::{
-    Client, ClientOptions, DataRecoveryPolicy, DropStrategy, OfflineQueuePolicy,
-    PublishMessage, ReconnectPolicy,
-};
+use std::time::Duration;
+use mqtt_tokio::{Client, ClientOptions, ReconnectPolicy, OfflineQueuePolicy, DropStrategy};
+use mqtt_packet::QoS;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Configure client with reconnection and offline recovery
-    let options = ClientOptions::from_uri("edge-node-01", "mqtt://127.0.0.1:1883")?
+    let options = ClientOptions::new("host-gateway", "127.0.0.1", 1883)
         .with_keep_alive(Duration::from_secs(30))
         .with_reconnect(ReconnectPolicy {
             enabled: true,
-            initial_delay: Duration::from_millis(200),
-            max_delay: Duration::from_secs(10),
-            multiplier: 1.8,
-            max_retries: None, // retry indefinitely
+            initial_delay: Duration::from_millis(100),
+            max_delay: Duration::from_secs(5),
+            multiplier: 1.5,
+            max_retries: None,
         })
         .with_offline_queue(OfflineQueuePolicy {
-            capacity: 1000,
+            capacity: 10_000,
             drop_strategy: DropStrategy::DropOldest,
-        })
-        .with_recovery(DataRecoveryPolicy {
-            resend_unacked_inflight: true,
-            auto_resubscribe: true,
-            max_inflight: 128,
         });
 
-    // 2. Connect (spawns background EventLoop driver)
     let (client, _handle) = Client::connect(options);
 
-    // 3. Subscribe to topic stream (wildcard matching via Trie)
-    let mut temp_stream = client
-        .subscribe_stream("sensors/+/temperature", QoS::AtLeastOnce)
-        .await?;
-
+    // Topic subscription stream router with wildcard matching
+    let mut sub_stream = client.subscribe_stream("sensors/+/temperature", QoS::AtLeastOnce).await?;
     tokio::spawn(async move {
-        while let Some(msg) = temp_stream.recv().await {
+        while let Some(msg) = sub_stream.recv().await {
             println!("{}: {}", msg.topic, msg.payload_as_str().unwrap_or(""));
         }
     });
 
-    // 4. Batch publish multiple messages in a single burst
-    client.publish_batch(vec![
-        PublishMessage::new("sensors/bedroom/temperature", Bytes::from_static(b"21.5")),
-        PublishMessage::new("sensors/kitchen/temperature", Bytes::from_static(b"23.8")),
-    ]).await?;
-
-    // 5. Multi-threaded data stream with atomic sequence IDs and sliding recovery journal
-    let producer = client.create_datastream_producer("telemetry/metrics", QoS::AtLeastOnce, 256);
-    for worker_id in 0..4 {
-        let prod = producer.clone();
-        tokio::spawn(async move {
-            for i in 0..100 {
-                let _ = prod.send(format!("worker-{worker_id}-metric-{i}").into_bytes()).await;
-            }
-        });
-    }
+    // High-speed batch publishing
+    client.publish(
+        "sensors/livingroom/temperature",
+        QoS::AtLeastOnce,
+        false,
+        "22.4",
+    ).await?;
 
     Ok(())
 }
-```
-
----
-
-## 2. Embedded `no_std` Quickstart
-
-```rust,no_run
-use embassy_time::Duration;
-use mqtt_async_embedded::{
-    MqttClient, MqttEvent, MqttOptions, MqttVersion, QoS,
-};
-
-async fn run_mqtt<T: mqtt_async_embedded::MqttTransport>(transport: T) {
-    let options = MqttOptions::new("sensor-node", "192.168.1.100", 1883)
-        .with_version(MqttVersion::V5)
-        .with_keep_alive(Duration::from_secs(30))
-        .with_clean_session(true);
-
-    // Static buffer allocation: MAX_TOPICS = 8, BUF_SIZE = 2048 bytes (0 heap allocs)
-    let mut client: MqttClient<_, 8, 2048> = MqttClient::new(transport, options);
-
-    client.connect().await.expect("Connect failed");
-    client.subscribe(&[("sensors/commands/+", QoS::AtLeastOnce)]).await.expect("Sub failed");
-
-    // Zero-RAM chunk stream publish (direct DMA / sensor piping)
-    let mut stream = client
-        .begin_stream_publish("sensors/camera/raw", 4096, QoS::AtMostOnce)
-        .await
-        .expect("Stream init failed");
-    
-    for chunk in camera_chunks {
-        stream.write_chunk(chunk).await.expect("Chunk write failed");
-    }
-    stream.finish().expect("Stream finish failed");
-
-    // Polling event loop
-    loop {
-        match client.poll().await {
-            Ok(Some(MqttEvent::Publish(msg))) => defmt::info!("Topic: {}", msg.topic),
-            Ok(Some(MqttEvent::PingResp)) => defmt::trace!("Ping OK"),
-            Ok(Some(MqttEvent::Disconnect(_))) | Err(_) => break,
-            Ok(None) => {}
-        }
-    }
-}
-```
-
----
-
-## 3. Web Server Camera & Telemetry Bridge (Axum / Actix-web)
-
-Fan out 1 MQTT subscription to thousands of concurrent web clients without duplicate broker traffic:
-
-```rust,no_run
-use mqtt_async_embedded::packet::QoS;
-use mqtt_async_embedded::tokio_client::{
-    CameraMjpegBridge, Client, ClientOptions, TelemetrySseBridge,
-};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (mqtt, _handle) = Client::connect(ClientOptions::new("web-backend", "127.0.0.1", 1883));
-
-    // Multi-client broadcast hubs
-    let video_hub = mqtt.create_broadcast_hub("security/camera/01/mjpeg", QoS::AtMostOnce, 64).await?;
-    let event_hub = mqtt.create_broadcast_hub("security/camera/01/events", QoS::AtMostOnce, 64).await?;
-
-    // In HTTP handlers:
-    // Live MJPEG for <img> tags: CameraMjpegBridge::new(&video_hub)
-    // Live SSE for dashboards:   TelemetrySseBridge::new(&event_hub)
-
-    Ok(())
-}
-```
-
----
-
-## 4. Slint GUI Integration (`std` & `no_std`)
-
-### Desktop / Mobile / Embedded Linux (`std`):
-```rust,ignore
-let ui = AppWindow::new()?;
-let weak_ui = ui.as_weak();
-
-// Bind telemetry stream directly to Slint property
-let _sub = mqtt.bind_slint_property("sensors/temp", QoS::AtLeastOnce, move |_topic, val| {
-    let weak = weak_ui.clone();
-    let _ = weak.upgrade_in_event_loop(move |ui| {
-        ui.set_temperature(val.into());
-    });
-}).await?;
-```
-
-### Bare-Metal Microcontrollers (`no_std`):
-```rust,ignore
-// Zero-allocation polling in display render tick loop
-loop {
-    if let Ok(Some(MqttEvent::Publish(msg))) = client.poll().await {
-        slint_ui.set_temperature(parse_temp(msg.payload));
-    }
-    slint::platform::update_timers_and_animations();
-}
-```
-
----
-
-## Feature Flags
-
-| Flag | Purpose | Target |
-| :--- | :--- | :--- |
-| `std` | Standard library support | Linux, Windows, macOS, Android |
-| `tokio-client` | Standard async client, topic router, recovery engine, data streams, web bridges, Slint support | Linux, Windows, Android |
-| `tokio-tls` | TLS support via `tokio-rustls` and WebPKI roots | Linux, Windows, Android |
-| `tokio-quic` / `transport-quic` | QUIC transport with multiplexed streams & datagrams (`quinn`) | Linux, Windows, Android |
-| `transport-smoltcp` | Bare-metal Ethernet/IP stack via `embassy-net` | Embedded MCUs |
-| `v5` | MQTT v5.0 User Properties and Reason Codes | All Platforms |
-| `defmt` | Zero-overhead binary logging | Embedded MCUs |
-
----
-
-## Commands
-
-```bash
-# Run full test suite across embedded and Tokio targets
-cargo test --all-features
-
-# Run Tokio basic pub/sub example
-cargo run --example tokio_basic_pubsub --features tokio-client
-
-# Run Tokio reconnect & recovery resilience example
-cargo run --example tokio_reconnect_resilience --features tokio-client
-
-# Run Web Server Camera Stream Bridge example
-cargo run --example server_camera_web_bridge --features tokio-client
-
-# Run Slint GUI Dashboard example
-cargo run --example slint_dashboard_app --features tokio-client
 ```
 
 ---
 
 ## License
 
-GPL-3.0-or-later.
+Dual-licensed under either of:
+- **MIT License** ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
+- **Apache License, Version 2.0** ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+
+at your option.

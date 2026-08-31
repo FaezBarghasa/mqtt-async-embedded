@@ -40,7 +40,8 @@ pub fn read_properties<'a>(
             0x03 | 0x08 | 0x12 | 0x15 | 0x1A | 0x1C | 0x1F | 0x09 | 0x16 => {
                 let len = u16::from_be_bytes([
                     *buf.get(data_start).ok_or(PacketError::MalformedPacket)?,
-                    *buf.get(data_start + 1).ok_or(PacketError::MalformedPacket)?,
+                    *buf.get(data_start + 1)
+                        .ok_or(PacketError::MalformedPacket)?,
                 ]) as usize;
                 2 + len
             }
@@ -48,7 +49,8 @@ pub fn read_properties<'a>(
             0x26 => {
                 let key_len = u16::from_be_bytes([
                     *buf.get(data_start).ok_or(PacketError::MalformedPacket)?,
-                    *buf.get(data_start + 1).ok_or(PacketError::MalformedPacket)?,
+                    *buf.get(data_start + 1)
+                        .ok_or(PacketError::MalformedPacket)?,
                 ]) as usize;
                 let val_start = data_start + 2 + key_len;
                 let val_len = u16::from_be_bytes([

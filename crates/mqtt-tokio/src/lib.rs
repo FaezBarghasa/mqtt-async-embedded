@@ -19,13 +19,10 @@ pub use client::{AsyncClient, Client};
 pub use eventloop::EventLoop;
 pub use fallback::SmartTransport;
 pub use options::{
-    ClientOptions, DropStrategy, OfflineQueuePolicy, ReconnectPolicy,
-    TransportTarget,
+    ClientOptions, DropStrategy, OfflineQueuePolicy, ReconnectPolicy, TransportTarget,
 };
 pub use router::{TopicRouter, validate_topic_filter};
-pub use stream::{
-    DataStreamConsumer, DataStreamProducer, SensorDataType, StreamChunk,
-};
+pub use stream::{DataStreamConsumer, DataStreamProducer, SensorDataType, StreamChunk};
 pub use transport::{AsyncTransport, BoxedTransport, connect_transport};
 pub use types::{
     ClientError, ConnectionStatus, DataRecoveryPolicy, PublishMessage, TopicSubscription,
