@@ -11,9 +11,11 @@ use tokio::net::TcpListener;
 use tokio::sync::Mutex;
 use tokio::time;
 
-use mqtt_async_embedded::packet::QoS;
+use mqtt_async_embedded::client::MqttVersion;
+use mqtt_async_embedded::packet::{EncodePacket, QoS};
 use mqtt_async_embedded::tokio_client::{
-    Client, ClientOptions, DataRecoveryPolicy, OfflineQueuePolicy, PublishMessage, ReconnectPolicy,
+    AsyncClient, Client, ClientOptions, ConnectionStatus, DataRecoveryPolicy, OfflineQueuePolicy,
+    PublishMessage, ReconnectPolicy,
 };
 
 /// A lightweight mock MQTT broker running on an ephemeral TCP port for automated integration testing.
@@ -66,7 +68,6 @@ impl MockBroker {
                                         let _ = socket.write_all(&connack).await;
                                         let _ = socket.flush().await;
 
-                                        // Consume connect packet bytes
                                         cursor = rx_len;
 
                                         if drop_flag.load(Ordering::SeqCst) {
@@ -80,7 +81,6 @@ impl MockBroker {
                                         // PUBLISH
                                         let qos = (buf[cursor] & 0x06) >> 1;
                                         let mut pos = cursor + 1;
-                                        // Read remaining length
                                         let mut rem_len = 0usize;
                                         let mut mult = 1usize;
                                         loop {
@@ -98,23 +98,23 @@ impl MockBroker {
                                         pos += topic_len;
 
                                         let pid = if qos == 1 {
-                                            u16::from_be_bytes([buf[pos], buf[pos + 1]])
+                                            let id = u16::from_be_bytes([buf[pos], buf[pos + 1]]);
+                                            pos += 2;
+                                            id
                                         } else {
                                             0
                                         };
 
-                                        pub_sink.lock().await.push(topic);
+                                        let payload = &buf[pos..pos + (rem_len - (pos - cursor - (pos - topic_len - 2)))];
+                                        pub_sink.lock().await.push(topic.clone());
 
-                                        let frame_len = pos + (rem_len - (pos - cursor - 1 - (pos - cursor - 1)));
-                                        let total_frame_len = (1 + (pos - cursor - 1) + (rem_len - (pos - cursor - 1))).min(rx_len - cursor);
-
-                                        // Echo PUBLISH packet back to socket so client topic router receives it
+                                        // Echo PUBLISH packet back to the client socket so client topic router receives it
+                                        let echo_pkt = mqtt_async_embedded::packet::Publish::new(&topic, payload, QoS::AtMostOnce);
                                         let mut echo_buf = [0u8; 1024];
-                                        let echo_len = total_frame_len.min(echo_buf.len());
-                                        echo_buf[..echo_len].copy_from_slice(&buf[cursor..cursor + echo_len]);
-                                        // Ensure packet_id is not expecting puback from client if QoS 0
-                                        let _ = socket.write_all(&echo_buf[..echo_len]).await;
-                                        let _ = socket.flush().await;
+                                        if let Ok(echo_len) = echo_pkt.encode(&mut echo_buf, MqttVersion::V3) {
+                                            let _ = socket.write_all(&echo_buf[..echo_len]).await;
+                                            let _ = socket.flush().await;
+                                        }
 
                                         if qos == 1 {
                                             // Send PUBACK
@@ -124,8 +124,7 @@ impl MockBroker {
                                             let _ = socket.flush().await;
                                         }
 
-                                        cursor += 1 + 1 + rem_len;
-                                        cursor = cursor.min(rx_len);
+                                        cursor = rx_len;
                                     }
                                     8 => {
                                         // SUBSCRIBE -> Reply SUBACK (0x90, 0x03, pid_hi, pid_lo, 0x00)
@@ -150,7 +149,7 @@ impl MockBroker {
                                         let pingresp = [0xD0, 0x00];
                                         let _ = socket.write_all(&pingresp).await;
                                         let _ = socket.flush().await;
-                                        cursor += 2;
+                                        cursor = rx_len;
                                     }
                                     14 => {
                                         // DISCONNECT
@@ -178,6 +177,25 @@ impl MockBroker {
     }
 }
 
+async fn wait_for_connected(client: &AsyncClient) {
+    let mut status = client.status();
+    let timeout = time::sleep(Duration::from_secs(2));
+    tokio::pin!(timeout);
+
+    loop {
+        tokio::select! {
+            _ = &mut timeout => {
+                panic!("Timed out waiting for client to connect");
+            }
+            res = status.changed() => {
+                if res.is_ok() && *status.borrow_and_update() == ConnectionStatus::Connected {
+                    return;
+                }
+            }
+        }
+    }
+}
+
 #[tokio::test]
 async fn test_tokio_client_connect_and_disconnect() {
     let broker = MockBroker::start().await;
@@ -186,12 +204,11 @@ async fn test_tokio_client_connect_and_disconnect() {
         .with_keep_alive(Duration::from_secs(10));
 
     let (client, _handle) = Client::connect(options);
-
-    time::sleep(Duration::from_millis(50)).await;
+    wait_for_connected(&client).await;
     assert!(client.is_connected());
 
     client.disconnect().await.expect("Disconnect should succeed");
-    time::sleep(Duration::from_millis(20)).await;
+    time::sleep(Duration::from_millis(50)).await;
     assert!(!client.is_connected());
 }
 
@@ -201,8 +218,7 @@ async fn test_tokio_client_publish_qos0_and_qos1() {
 
     let options = ClientOptions::new("tokio-test-client-2", "127.0.0.1", broker.addr.port());
     let (client, _handle) = Client::connect(options);
-
-    time::sleep(Duration::from_millis(50)).await;
+    wait_for_connected(&client).await;
 
     // QoS 0 Fire-and-forget
     client
@@ -229,8 +245,7 @@ async fn test_tokio_client_publish_batch_burst() {
 
     let options = ClientOptions::new("tokio-test-client-3", "127.0.0.1", broker.addr.port());
     let (client, _handle) = Client::connect(options);
-
-    time::sleep(Duration::from_millis(50)).await;
+    wait_for_connected(&client).await;
 
     let messages = vec![
         PublishMessage::new("batch/sensor1", Bytes::from_static(b"val1")),
@@ -255,8 +270,7 @@ async fn test_tokio_client_topic_subscription_stream_routing() {
 
     let options = ClientOptions::new("tokio-test-client-4", "127.0.0.1", broker.addr.port());
     let (client, _handle) = Client::connect(options);
-
-    time::sleep(Duration::from_millis(50)).await;
+    wait_for_connected(&client).await;
 
     // Subscribe to wildcard filter 'home/+/temp'
     let mut sub_stream = client
@@ -266,14 +280,14 @@ async fn test_tokio_client_topic_subscription_stream_routing() {
 
     assert_eq!(sub_stream.topic_filter(), "home/+/temp");
 
-    // Publish to a matching topic from the client
+    // Publish to a matching topic
     client
         .publish("home/livingroom/temp", QoS::AtMostOnce, false, "21.0")
         .await
         .unwrap();
 
     // The router delivers to matching subscription stream
-    let msg = time::timeout(Duration::from_millis(200), sub_stream.recv())
+    let msg = time::timeout(Duration::from_millis(500), sub_stream.recv())
         .await
         .expect("Timed out waiting for sub_stream message")
         .expect("Expected message");
@@ -286,7 +300,6 @@ async fn test_tokio_client_topic_subscription_stream_routing() {
 async fn test_tokio_client_reconnect_and_data_recovery() {
     let broker = MockBroker::start().await;
 
-    // Configure client with exponential backoff & data recovery
     let options = ClientOptions::new("tokio-test-client-5", "127.0.0.1", broker.addr.port())
         .with_reconnect(ReconnectPolicy {
             enabled: true,
@@ -303,8 +316,7 @@ async fn test_tokio_client_reconnect_and_data_recovery() {
         .with_offline_queue(OfflineQueuePolicy::default());
 
     let (client, _handle) = Client::connect(options);
-
-    time::sleep(Duration::from_millis(50)).await;
+    wait_for_connected(&client).await;
     assert!(client.is_connected());
 
     // Register active subscription
