@@ -7,7 +7,6 @@
 use std::collections::{HashMap, VecDeque};
 use std::string::{String, ToString};
 use std::time::Duration;
-use std::vec;
 use std::vec::Vec;
 
 use bytes::Bytes;
@@ -64,13 +63,13 @@ pub struct EventLoop {
 impl EventLoop {
     pub(crate) fn new(
         options: ClientOptions,
-        router: TopicRouter,
         req_rx: mpsc::Receiver<ClientRequest>,
         status_tx: watch::Sender<ConnectionStatus>,
     ) -> Self {
+        let max_pkt = options.max_packet_size;
         Self {
             options,
-            router,
+            router: TopicRouter::new(),
             req_rx,
             status_tx,
             transport: None,
@@ -80,15 +79,15 @@ impl EventLoop {
             inflight_subscribes: HashMap::new(),
             inflight_unsubscribes: HashMap::new(),
             next_packet_id: 1,
-            rx_buf: Vec::with_capacity(4096),
-            tx_buf: Vec::with_capacity(4096),
+            rx_buf: std::vec::from_elem(0u8, max_pkt),
+            tx_buf: std::vec::from_elem(0u8, max_pkt),
             last_tx: Instant::now(),
             reconnect_attempt: 0,
         }
     }
 
-    /// Allocates next available 16-bit packet ID.
-    fn allocate_packet_id(&mut self) -> u16 {
+    /// Allocates the next rolling MQTT packet ID (1..=65535).
+    fn get_next_packet_id(&mut self) -> u16 {
         let id = self.next_packet_id;
         self.next_packet_id = self.next_packet_id.wrapping_add(1);
         if self.next_packet_id == 0 {

@@ -8,10 +8,11 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
 
 jobs:
-  check:
-    name: Check & Test
+  lint:
+    name: Lint & Format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,31 +21,71 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-          targets: thumbv7em-none-eabihf, riscv32imc-unknown-none-elf, riscv32imac-unknown-none-elf
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
 
       - name: Format Check
         run: cargo fmt --all -- --check
 
-      - name: Build (no_std sanity)
-        run: cargo build --no-default-features
+      - name: Clippy (All Features)
+        run: cargo clippy --all-features -- -D warnings
 
-      - name: Build for ESP32-C3 (RISC-V embedded target)
-        run: cargo build --target riscv32imc-unknown-none-elf --no-default-features
+  test:
+    name: Test Host (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Build for ESP32-C6 (RISC-V embedded target)
-        run: cargo build --target riscv32imac-unknown-none-elf --no-default-features
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Build for ARM Cortex-M (embedded target)
-        run: cargo build --target thumbv7em-none-eabihf --no-default-features
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
 
-      - name: Build with defmt logging (embedded RISC-V)
-        run: cargo check --target riscv32imc-unknown-none-elf --no-default-features --features defmt
-
-      - name: Test (all features & integration tests)
+      - name: Test (All Features)
         run: cargo test --all-features
 
-      - name: Documentation Build
+      - name: Check Examples
+        run: cargo check --all-features --examples
+
+      - name: Check Documentation
         run: cargo doc --all-features --no-deps
 
-      - name: Clippy Check
-        run: cargo clippy --all-features -- -D warnings
+  embedded:
+    name: Embedded no_std (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - riscv32imc-unknown-none-elf   # ESP32-C2 / ESP32-C3
+          - riscv32imac-unknown-none-elf  # ESP32-C6 / ESP32-H2
+          - thumbv7em-none-eabihf         # ARM Cortex-M4F / Cortex-M7
+          - thumbv6m-none-eabi           # ARM Cortex-M0 / Cortex-M0+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain with embedded target
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Pure no_std Build
+        run: cargo build --target ${{ matrix.target }} --no-default-features
+
+      - name: no_std + defmt logging
+        run: cargo check --target ${{ matrix.target }} --no-default-features --features defmt
+
+      - name: no_std + MQTT v5
+        run: cargo check --target ${{ matrix.target }} --no-default-features --features v5
+
+      - name: no_std + defmt + MQTT v5
+        run: cargo check --target ${{ matrix.target }} --no-default-features --features defmt,v5

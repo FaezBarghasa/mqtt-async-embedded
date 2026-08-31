@@ -72,9 +72,7 @@ impl AsyncWrite for QuicTransportStream {
     ) -> Poll<std::io::Result<usize>> {
         match Pin::new(&mut self.send_stream).poll_write(cx, buf) {
             Poll::Ready(Ok(n)) => Poll::Ready(Ok(n)),
-            Poll::Ready(Err(e)) => {
-                Poll::Ready(Err(std::io::Error::new(std::io::ErrorKind::Other, e)))
-            }
+            Poll::Ready(Err(e)) => Poll::Ready(Err(std::io::Error::other(e))),
             Poll::Pending => Poll::Pending,
         }
     }
@@ -86,7 +84,7 @@ impl AsyncWrite for QuicTransportStream {
     fn poll_shutdown(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         match self.send_stream.finish() {
             Ok(()) => Poll::Ready(Ok(())),
-            Err(e) => Poll::Ready(Err(std::io::Error::new(std::io::ErrorKind::Other, e))),
+            Err(e) => Poll::Ready(Err(std::io::Error::other(e))),
         }
     }
 }

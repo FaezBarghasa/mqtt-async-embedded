@@ -418,12 +418,12 @@ impl DataStreamConsumer {
                 self.reorder_buffer.insert(chunk.seq_id, chunk);
 
                 // If reorder buffer exceeds window, force pop the smallest available
-                if self.reorder_buffer.len() > self.max_reorder_window {
-                    if let Some((&first_key, _)) = self.reorder_buffer.iter().next() {
-                        let popped = self.reorder_buffer.remove(&first_key).unwrap();
-                        self.expected_seq = popped.seq_id + 1;
-                        return Ok(Some(popped));
-                    }
+                if self.reorder_buffer.len() > self.max_reorder_window
+                    && let Some((&first_key, _)) = self.reorder_buffer.iter().next()
+                {
+                    let popped = self.reorder_buffer.remove(&first_key).unwrap();
+                    self.expected_seq = popped.seq_id + 1;
+                    return Ok(Some(popped));
                 }
             }
             // If chunk.seq_id < self.expected_seq, it's an old duplicate -> drop it automatically

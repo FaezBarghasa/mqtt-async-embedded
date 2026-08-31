@@ -150,15 +150,15 @@ impl TopicRouter {
             node.hash_subscribers.clear();
             return node.is_empty();
         } else if level == "+" {
-            if let Some(ref mut plus) = node.plus_child {
-                if Self::remove_recursive(plus, levels, depth + 1) {
-                    node.plus_child = None;
-                }
+            if let Some(ref mut plus) = node.plus_child
+                && Self::remove_recursive(plus, levels, depth + 1)
+            {
+                node.plus_child = None;
             }
-        } else if let Some(child) = node.exact_children.get_mut(level) {
-            if Self::remove_recursive(child, levels, depth + 1) {
-                node.exact_children.remove(level);
-            }
+        } else if let Some(child) = node.exact_children.get_mut(level)
+            && Self::remove_recursive(child, levels, depth + 1)
+        {
+            node.exact_children.remove(level);
         }
 
         node.is_empty()
