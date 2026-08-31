@@ -24,6 +24,9 @@ pub mod packet;
 pub mod transport;
 pub mod util;
 
+#[cfg(feature = "tokio-client")]
+pub mod tokio_client;
+
 // Re-export key types for easier access at the crate root.
 pub use client::{
     MqttClient, MqttEvent, MqttOptions, MqttStreamWriter, MqttVersion, PublishMessage,
@@ -35,3 +38,12 @@ pub use transport::{
     EmbeddedIoError, EmbeddedIoSplitTransport, EmbeddedIoTransport, MqttQuicTransport,
     MqttTransport, SplitIoError, TransportError,
 };
+
+#[cfg(feature = "tokio-client")]
+pub use tokio_client::{
+    AsyncClient as TokioAsyncClient, Client as TokioClient, ClientError as TokioClientError,
+    ClientOptions as TokioClientOptions, ConnectionStatus as TokioConnectionStatus,
+    DataRecoveryPolicy, DropStrategy, OfflineQueuePolicy, PublishMessage as TokioPublishMessage,
+    ReconnectPolicy, TopicRouter, TopicSubscription,
+};
+

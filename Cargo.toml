@@ -21,8 +21,13 @@ embassy-time = "0.5"
 embassy-net = { version = "0.9.1", optional = true }
 nom = { version = "8", optional = true }
 futures = { version = "0.3.31", default-features = false }
+futures-util = { version = "0.3.31", default-features = false, features = [
+    "alloc",
+    "sink",
+], optional = true }
+tracing = { version = "0.1", default-features = false, optional = true }
 
-# Dependencies for std / host / examples / QUIC
+# Dependencies for std / host / examples / QUIC / Tokio client
 log = { version = "0.4", optional = true }
 env_logger = { version = "0.11", optional = true }
 embassy-executor = { version = "0.10.0", optional = true }
@@ -39,6 +44,12 @@ rustls = { version = "0.23", default-features = false, features = [
     "ring",
     "std",
 ], optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = [
+    "ring",
+    "tls12",
+    "logging",
+], optional = true }
+webpki-roots = { version = "1.0.9", optional = true }
 
 [features]
 default = []
@@ -50,6 +61,25 @@ std = [
     "dep:static_cell",
     "dep:embassy-sync",
     "embassy-time/std",
+]
+tokio-client = [
+    "std",
+    "dep:tokio",
+    "dep:bytes",
+    "dep:futures-util",
+    "dep:tracing",
+]
+tokio-tls = [
+    "tokio-client",
+    "dep:tokio-rustls",
+    "dep:rustls",
+    "dep:webpki-roots",
+]
+tokio-quic = [
+    "tokio-client",
+    "transport-quic",
+    "dep:quinn",
+    "dep:rustls",
 ]
 v5 = []
 defmt = ["dep:defmt", "heapless/defmt"]
