@@ -10,7 +10,7 @@ use std::vec::Vec;
 
 use tokio::sync::mpsc;
 
-use crate::tokio_client::types::{ClientError, PublishMessage};
+use crate::types::{ClientError, PublishMessage};
 
 /// Validates whether a topic filter string is compliant with the MQTT specification.
 pub fn validate_topic_filter(filter: &str) -> Result<(), ClientError> {

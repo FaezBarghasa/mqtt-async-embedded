@@ -1,0 +1,22 @@
+[package]
+name = "mqtt-bridges"
+version = "1.6.0"
+edition = "2024"
+authors = ["Faez Barghasa <faez.barghasa.org@gmail.com>"]
+description = "Web streaming (Axum, Actix, SSE, MJPEG) and Slint UI bridges for mqtt-tokio."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/FaezBarghasa/mqtt-async-embedded"
+documentation = "https://docs.rs/mqtt-bridges"
+readme = "README.md"
+keywords = ["mqtt", "axum", "slint", "mjpeg", "sse"]
+categories = ["asynchronous", "web-programming", "gui"]
+
+[dependencies]
+mqtt-packet = { path = "../mqtt-packet", version = "1.6.0" }
+mqtt-tokio = { path = "../mqtt-tokio", version = "1.6.0" }
+tokio = { version = "1.47", features = ["full"] }
+bytes = "1.10"
+futures-util = { version = "0.3.31", default-features = false, features = ["alloc"] }
+
+[features]
+default = []

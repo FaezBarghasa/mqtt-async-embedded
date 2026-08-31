@@ -11,10 +11,8 @@ use std::string::{String, ToString};
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 
-use crate::packet::QoS;
-use crate::tokio_client::client::AsyncClient;
-use crate::tokio_client::stream::StreamChunk;
-use crate::tokio_client::types::ClientError;
+use mqtt_packet::QoS;
+use mqtt_tokio::{AsyncClient, ClientError, StreamChunk};
 
 /// A thread-safe UI stream binding handle that pipes incoming MQTT messages into a Slint event loop callback.
 pub struct SlintStreamBinding {

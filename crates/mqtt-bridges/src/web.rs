@@ -22,9 +22,8 @@ use futures_util::Stream;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 
-use crate::packet::QoS;
-use crate::tokio_client::client::AsyncClient;
-use crate::tokio_client::types::ClientError;
+use mqtt_packet::QoS;
+use mqtt_tokio::{AsyncClient, ClientError};
 
 /// A multi-client broadcast hub distributing a single MQTT stream to multiple HTTP/WebSocket web clients.
 #[derive(Clone)]

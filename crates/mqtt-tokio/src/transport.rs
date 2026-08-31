@@ -18,8 +18,8 @@ use tokio::io::ReadBuf;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 
-use crate::tokio_client::options::TransportTarget;
-use crate::tokio_client::types::ClientError;
+use crate::options::TransportTarget;
+use crate::types::ClientError;
 
 /// A trait object for any asynchronous, cancel-safe, thread-safe byte transport stream.
 pub type BoxedTransport = Box<dyn AsyncTransport + Send + Unpin>;

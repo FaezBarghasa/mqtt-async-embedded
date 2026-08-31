@@ -18,9 +18,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio::sync::RwLock;
 
-use crate::packet::QoS;
-use crate::tokio_client::client::AsyncClient;
-use crate::tokio_client::types::{ClientError, PublishMessage, TopicSubscription};
+use mqtt_packet::QoS;
+use crate::client::AsyncClient;
+use crate::types::{ClientError, PublishMessage, TopicSubscription};
 
 /// Universal sensor and media payload types supported by the stream engine.
 #[derive(Debug, Clone, PartialEq)]

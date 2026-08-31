@@ -5,7 +5,7 @@ use crate::packet_types::{
     ConnAck, Connect, Disconnect, MqttPacket, MqttVersion, PingReq, PingResp, PubAck, PubComp,
     PubRec, PubRel, Publish, QoS, SubAck, Subscribe, UnsubAck, Unsubscribe, Will,
 };
-use crate::properties::{Property, read_properties, write_properties};
+use crate::properties::{read_properties, write_properties};
 use crate::varint::{
     peek_variable_byte_integer, read_binary_data, read_utf8_string, read_variable_byte_integer,
     write_binary_data, write_utf8_string, write_variable_byte_integer_len,

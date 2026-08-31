@@ -30,6 +30,7 @@ impl From<u8> for QoS {
 pub enum MqttVersion {
     #[default]
     V3_1_1,
+    V3,
     V5,
 }
 

@@ -14,8 +14,8 @@ use bytes::Bytes;
 use futures_util::Stream;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::error::ProtocolError;
-use crate::packet::QoS;
+use mqtt_embedded::ProtocolError;
+use mqtt_packet::QoS;
 
 /// Represents an owned MQTT Publish message.
 ///

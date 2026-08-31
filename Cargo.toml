@@ -1,139 +1,21 @@
-[package]
-name = "mqtt-async-embedded"
-version = "1.5.1"
+[workspace]
+resolver = "2"
+members = [
+    "crates/mqtt-packet",
+    "crates/mqtt-embedded",
+    "crates/mqtt-tokio",
+    "crates/mqtt-bridges",
+    "crates/mqtt-async-embedded",
+    "benches",
+]
+
+[workspace.package]
+version = "1.6.0"
 edition = "2024"
 authors = ["Faez Barghasa <faez.barghasa.org@gmail.com>"]
-description = "High-performance, async, no_std-compatible MQTT client for embedded systems with multi-packet batching and QUIC/H3 support."
-license = "GPL-3.0-or-later"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/FaezBarghasa/mqtt-async-embedded"
 documentation = "https://docs.rs/mqtt-async-embedded"
 readme = "README.md"
-keywords = ["mqtt", "async", "embedded", "embassy", "no_std", "quic"]
+keywords = ["mqtt", "async", "embedded", "embassy", "no_std"]
 categories = ["embedded", "no-std", "asynchronous", "network-programming"]
-
-[dependencies]
-embedded-hal = "1.0"
-embedded-hal-async = "1.0"
-embedded-io-async = "0.7.0"
-heapless = "0.9"
-defmt = { version = "1.0", optional = true }
-embassy-time = "0.5"
-embassy-net = { version = "0.9.1", optional = true }
-nom = { version = "8", optional = true }
-futures = { version = "0.3.31", default-features = false }
-futures-util = { version = "0.3.31", default-features = false, features = [
-    "alloc",
-    "sink",
-], optional = true }
-tracing = { version = "0.1", default-features = false, optional = true }
-
-# Dependencies for std / host / examples / QUIC / Tokio client
-log = { version = "0.4", optional = true }
-env_logger = { version = "0.11", optional = true }
-embassy-executor = { version = "0.10.0", optional = true }
-static_cell = { version = "2.1", optional = true }
-embassy-sync = { version = "0.8.0", optional = true }
-tokio = { version = "1.47", features = ["full"], optional = true }
-bytes = { version = "1.10", optional = true }
-quinn = { version = "0.11", default-features = false, features = [
-    "runtime-tokio",
-    "rustls",
-    "ring",
-], optional = true }
-rustls = { version = "0.23", default-features = false, features = [
-    "ring",
-    "std",
-], optional = true }
-tokio-rustls = { version = "0.26", default-features = false, features = [
-    "ring",
-    "tls12",
-    "logging",
-], optional = true }
-webpki-roots = { version = "1.0.9", optional = true }
-
-[features]
-default = []
-std = [
-    "dep:tokio",
-    "dep:log",
-    "dep:env_logger",
-    "dep:embassy-executor",
-    "dep:static_cell",
-    "dep:embassy-sync",
-    "embassy-time/std",
-]
-tokio-client = [
-    "std",
-    "dep:tokio",
-    "dep:bytes",
-    "dep:futures-util",
-    "dep:tracing",
-]
-tokio-tls = [
-    "tokio-client",
-    "dep:tokio-rustls",
-    "dep:rustls",
-    "dep:webpki-roots",
-]
-tokio-quic = ["tokio-client", "transport-quic", "dep:quinn", "dep:rustls"]
-v5 = []
-defmt = ["dep:defmt", "heapless/defmt"]
-nom = ["dep:nom"]
-transport-smoltcp = [
-    "dep:embassy-net",
-    "embassy-net/tcp",
-    "embassy-net/proto-ipv4",
-    "embassy-net/medium-ethernet",
-]
-transport-quic = ["std", "dep:quinn", "dep:rustls", "dep:bytes"]
-
-[[example]]
-name = "desktop_mock"
-required-features = ["std"]
-path = "examples/desktop_mock.rs"
-
-[[example]]
-name = "multipacket_burst"
-required-features = ["std"]
-path = "examples/multipacket_burst.rs"
-
-[[example]]
-name = "quic_client"
-required-features = ["transport-quic"]
-path = "examples/quic_client.rs"
-
-[[example]]
-name = "esp8266_uart"
-path = "examples/esp8266_uart.rs"
-
-[[example]]
-name = "smoltcp_ethernet"
-path = "examples/smoltcp_ethernet.rs"
-
-[[example]]
-name = "esp32_wifi_embassy"
-path = "examples/esp32_wifi_embassy.rs"
-
-[[example]]
-name = "realtime_stream"
-path = "examples/realtime_stream.rs"
-
-[[example]]
-name = "tokio_basic_pubsub"
-required-features = ["tokio-client"]
-path = "examples/tokio_basic_pubsub.rs"
-
-[[example]]
-name = "tokio_reconnect_resilience"
-required-features = ["tokio-client"]
-path = "examples/tokio_reconnect_resilience.rs"
-
-[[example]]
-name = "server_camera_web_bridge"
-required-features = ["tokio-client"]
-path = "examples/server_camera_web_bridge.rs"
-
-[[example]]
-name = "slint_dashboard_app"
-required-features = ["tokio-client"]
-path = "examples/slint_dashboard_app.rs"

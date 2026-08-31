@@ -1,0 +1,31 @@
+[package]
+name = "mqtt-tokio"
+version = "1.6.0"
+edition = "2024"
+authors = ["Faez Barghasa <faez.barghasa.org@gmail.com>"]
+description = "High-performance, feature-rich async MQTT client for Tokio with QUIC, recovery, and topic routing."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/FaezBarghasa/mqtt-async-embedded"
+documentation = "https://docs.rs/mqtt-tokio"
+readme = "README.md"
+keywords = ["mqtt", "tokio", "async", "quic", "client"]
+categories = ["asynchronous", "network-programming"]
+
+[dependencies]
+mqtt-packet = { path = "../mqtt-packet", version = "1.6.0" }
+mqtt-embedded = { path = "../mqtt-embedded", version = "1.6.0", features = ["std"] }
+tokio = { version = "1.47", features = ["full"] }
+bytes = "1.10"
+futures-util = { version = "0.3.31", default-features = false, features = ["alloc", "sink"] }
+tracing = { version = "0.1", default-features = false }
+quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls", "ring"], optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"], optional = true }
+webpki-roots = { version = "1.0.9", optional = true }
+
+[features]
+default = ["tls", "quic"]
+tls = ["dep:tokio-rustls", "dep:rustls", "dep:webpki-roots"]
+quic = ["dep:quinn", "dep:rustls"]
+tokio-tls = ["tls"]
+transport-quic = ["quic"]

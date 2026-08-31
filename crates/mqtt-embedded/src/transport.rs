@@ -1,13 +1,16 @@
+//! # Embedded Transport Abstractions
+
 #![allow(async_fn_in_trait)]
 
 use core::fmt::Debug;
+pub use crate::error::ErrorPlaceHolder;
 
+#[cfg(feature = "transport-quic")]
+extern crate std;
 #[cfg(feature = "transport-quic")]
 use std::format;
 #[cfg(feature = "transport-quic")]
 use std::string::String;
-
-pub use crate::error::ErrorPlaceHolder;
 
 /// A trait representing a transport error.
 pub trait TransportError: Debug {}
@@ -18,9 +21,8 @@ impl TransportError for core::convert::Infallible {}
 #[cfg(feature = "std")]
 impl TransportError for std::io::Error {}
 
-/// A trait representing a stream-based transport for MQTT packets.
+/// A stream-based transport for embedded MQTT communication.
 pub trait MqttTransport {
-    /// The error type returned by the transport.
     type Error: TransportError;
 
     /// Sends a buffer of data over the transport.
@@ -29,7 +31,7 @@ pub trait MqttTransport {
     /// Receives data from the transport into a buffer. Returns bytes read.
     async fn recv(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error>;
 
-    /// Fast-path vectored write: sends multiple contiguous slices in order without intermediate buffer copies.
+    /// Fast-path vectored write: transmits multiple contiguous slices without intermediate copying.
     async fn send_vectored(&mut self, bufs: &[&[u8]]) -> Result<(), Self::Error> {
         for b in bufs {
             if !b.is_empty() {
@@ -40,50 +42,33 @@ pub trait MqttTransport {
     }
 }
 
-/// A trait representing an MQTT-over-QUIC transport.
-/// Provides stream multiplexing (eliminating Head-of-Line blocking) and fast unreliable datagrams.
+/// QUIC transport trait abstraction.
 pub trait MqttQuicTransport {
     type Error: TransportError;
     type SendStream: MqttQuicSendStream<Error = Self::Error>;
     type RecvStream: MqttQuicRecvStream<Error = Self::Error>;
 
-    /// Opens a bidirectional stream (ideal for control packets CONNECT/CONNACK or QoS 1 request-response).
-    async fn open_bi_stream(&mut self)
-    -> Result<(Self::SendStream, Self::RecvStream), Self::Error>;
-
-    /// Opens a unidirectional send stream (ideal for QoS 0 telemetry bursts).
+    async fn open_bi_stream(&mut self) -> Result<(Self::SendStream, Self::RecvStream), Self::Error>;
     async fn open_uni_stream(&mut self) -> Result<Self::SendStream, Self::Error>;
-
-    /// Accepts an incoming bidirectional stream initiated by the broker.
-    async fn accept_bi_stream(
-        &mut self,
-    ) -> Result<(Self::SendStream, Self::RecvStream), Self::Error>;
-
-    /// Sends an unreliable QUIC datagram (fastest possible transfer for real-time sensor streams).
+    async fn accept_bi_stream(&mut self) -> Result<(Self::SendStream, Self::RecvStream), Self::Error>;
     async fn send_datagram(&mut self, data: &[u8]) -> Result<(), Self::Error>;
-
-    /// Receives an unreliable QUIC datagram.
     async fn recv_datagram(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error>;
 }
 
-/// QUIC Send Stream abstraction.
+/// Send stream trait for QUIC.
 pub trait MqttQuicSendStream {
     type Error: TransportError;
     async fn write(&mut self, buf: &[u8]) -> Result<(), Self::Error>;
     async fn finish(&mut self) -> Result<(), Self::Error>;
 }
 
-/// QUIC Recv Stream abstraction.
+/// Recv stream trait for QUIC.
 pub trait MqttQuicRecvStream {
     type Error: TransportError;
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error>;
 }
 
-// ---------------------------------------------------------------------------
-// Universal embedded-io-async Adapters (esp-hal, esp-idf, embassy-net, UART)
-// ---------------------------------------------------------------------------
-
-/// Transport error wrapper for errors implementing `embedded_io_async::Error` or `core::fmt::Debug`.
+/// Universal transport error for `embedded-io-async`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum EmbeddedIoError<E> {
@@ -92,13 +77,7 @@ pub enum EmbeddedIoError<E> {
 
 impl<E: core::fmt::Debug> TransportError for EmbeddedIoError<E> {}
 
-/// Universal MQTT transport adapter for any stream implementing `embedded_io_async::Read` and `embedded_io_async::Write`.
-///
-/// Provides seamless out-of-the-box compatibility with:
-/// - **ESP32-S series** (ESP32-S2, ESP32-S3) via `esp-hal`, `esp-wifi`, or `esp-idf-svc`
-/// - **ESP32-C series** (ESP32-C2, ESP32-C3, ESP32-C6) via `esp-hal`, `esp-wifi`, or `esp-idf-svc`
-/// - **Embassy** network stacks (`embassy-net::tcp::TcpSocket`)
-/// - Asynchronous UART modems and cellular serial channels
+/// Universal MQTT transport adapter for any stream implementing `embedded_io_async::Read` + `Write`.
 pub struct EmbeddedIoTransport<S> {
     stream: S,
 }
@@ -139,7 +118,7 @@ where
     }
 }
 
-/// Universal MQTT transport adapter for independent reader and writer streams (e.g. split UART RX/TX or split TCP streams).
+/// Universal MQTT transport adapter for independent reader and writer streams.
 pub struct EmbeddedIoSplitTransport<R, W> {
     reader: R,
     writer: W,

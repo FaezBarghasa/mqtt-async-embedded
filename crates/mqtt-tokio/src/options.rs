@@ -8,8 +8,8 @@ use std::format;
 use std::string::{String, ToString};
 use std::time::Duration;
 
-use crate::client::MqttVersion;
-use crate::tokio_client::types::{ClientError, DataRecoveryPolicy, PublishMessage};
+use mqtt_packet::MqttVersion;
+use crate::types::{ClientError, DataRecoveryPolicy, PublishMessage};
 
 /// Strategy used when the client's offline queue reaches capacity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -138,7 +138,7 @@ impl ClientOptions {
             clean_session: true,
             username: None,
             password: None,
-            version: MqttVersion::V3,
+            version: MqttVersion::V3_1_1,
             will: None,
             reconnect: ReconnectPolicy::default(),
             offline_queue: OfflineQueuePolicy::default(),

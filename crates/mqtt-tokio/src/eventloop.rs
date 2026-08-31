@@ -14,16 +14,15 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{self, Instant};
 
-use crate::error::ProtocolError;
-use crate::packet::{
-    self, Connect, Disconnect, EncodePacket, MqttPacket, PingReq, PubAck, Publish, QoS, Subscribe,
-    Unsubscribe,
+use mqtt_embedded::ProtocolError;
+use mqtt_packet::{
+    Connect, Disconnect, EncodePacket, MqttPacket, PingReq, PubAck, Publish, QoS,
+    RawPacketFrameIter, Subscribe, Unsubscribe, Will, decode,
 };
-use crate::tokio_client::options::{ClientOptions, DropStrategy};
-use crate::tokio_client::router::TopicRouter;
-use crate::tokio_client::transport::{BoxedTransport, connect_transport};
-use crate::tokio_client::types::{ClientError, ClientRequest, ConnectionStatus, PublishMessage};
-use crate::util::RawPacketFrameIter;
+use crate::options::{ClientOptions, DropStrategy};
+use crate::router::TopicRouter;
+use crate::transport::{BoxedTransport, connect_transport};
+use crate::types::{ClientError, ClientRequest, ConnectionStatus, PublishMessage};
 
 enum IncomingAction {
     Publish(PublishMessage),
@@ -198,7 +197,7 @@ impl EventLoop {
 
         let will_data;
         if let Some(ref will) = self.options.will {
-            will_data = crate::packet::Will::new(&will.topic, &will.payload, will.qos, will.retain);
+            will_data = Will::new(&will.topic, &will.payload, will.qos, will.retain);
             connect.will = Some(will_data);
         }
 
@@ -218,7 +217,7 @@ impl EventLoop {
             return Err(ClientError::Protocol(ProtocolError::InvalidResponse));
         }
 
-        let packet = packet::decode::<()>(&self.rx_buf[..read_len], self.options.version)
+        let packet = decode(&self.rx_buf[..read_len], self.options.version)
             .map_err(|_| ClientError::Protocol(ProtocolError::InvalidResponse))?
             .ok_or(ClientError::Protocol(ProtocolError::InvalidResponse))?;
 
@@ -330,7 +329,7 @@ impl EventLoop {
                             let iter = RawPacketFrameIter::new(&self.rx_buf[..rx_cursor]);
                             for frame in iter.flatten() {
                                 consumed += frame.len();
-                                if let Some(packet) = packet::decode::<()>(frame, self.options.version)
+                                if let Some(packet) = decode(frame, self.options.version)
                                     .map_err(|_| ClientError::Protocol(ProtocolError::InvalidResponse))?
                                 {
                                     match packet {

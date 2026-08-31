@@ -1,0 +1,18 @@
+[package]
+name = "benches"
+version = "1.6.0"
+edition = "2024"
+authors = ["Faez Barghasa <faez.barghasa.org@gmail.com>"]
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+mqtt-packet = { path = "../crates/mqtt-packet" }
+mqtt-embedded = { path = "../crates/mqtt-embedded", features = ["std"] }
+mqtt-tokio = { path = "../crates/mqtt-tokio" }
+tokio = { version = "1.47", features = ["full"] }
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[[bench]]
+name = "codec_benchmarks"
+harness = false
