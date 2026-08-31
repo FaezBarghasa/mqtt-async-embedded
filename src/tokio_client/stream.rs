@@ -10,7 +10,6 @@
 //! - **Automated Session Data Recovery**: Sliding recovery journals, sequence tracking, and out-of-order reassembly.
 
 use std::collections::{BTreeMap, VecDeque};
-use std::format;
 use std::string::{String, ToString};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -115,20 +114,22 @@ impl SensorDataType {
     }
 
     /// Deserializes a binary payload into a typed sensor structure.
-    pub fn decode(mut payload: Bytes) -> Self {
+    pub fn decode(payload: Bytes) -> Self {
         if payload.is_empty() {
             return Self::Raw(payload);
         }
 
-        let tag = payload.get_u8();
+        let tag = payload[0];
+        let mut slice = payload.slice(1..);
         match tag {
+            Self::TAG_RAW => Self::Raw(slice),
             Self::TAG_TIMESERIES_F64 => {
-                if payload.len() >= 2 {
-                    let count = payload.get_u16() as usize;
-                    if payload.len() >= count * 8 {
+                if slice.len() >= 2 {
+                    let count = slice.get_u16() as usize;
+                    if slice.len() >= count * 8 {
                         let mut vals = std::vec::Vec::with_capacity(count);
                         for _ in 0..count {
-                            vals.push(payload.get_f64());
+                            vals.push(slice.get_f64());
                         }
                         return Self::TimeSeries(vals);
                     }
@@ -136,12 +137,12 @@ impl SensorDataType {
                 Self::Raw(payload)
             }
             Self::TAG_TIMESERIES_F32 => {
-                if payload.len() >= 2 {
-                    let count = payload.get_u16() as usize;
-                    if payload.len() >= count * 4 {
+                if slice.len() >= 2 {
+                    let count = slice.get_u16() as usize;
+                    if slice.len() >= count * 4 {
                         let mut vals = std::vec::Vec::with_capacity(count);
                         for _ in 0..count {
-                            vals.push(payload.get_f32());
+                            vals.push(slice.get_f32());
                         }
                         return Self::TimeSeriesF32(vals);
                     }
@@ -149,28 +150,28 @@ impl SensorDataType {
                 Self::Raw(payload)
             }
             Self::TAG_JSON => {
-                let s = String::from_utf8_lossy(&payload).to_string();
+                let s = String::from_utf8_lossy(&slice).to_string();
                 Self::Json(s)
             }
             Self::TAG_AUDIO_PCM => {
-                if payload.len() >= 5 {
-                    let sample_rate = payload.get_u32();
-                    let channels = payload.get_u8();
+                if slice.len() >= 5 {
+                    let sample_rate = slice.get_u32();
+                    let channels = slice.get_u8();
                     return Self::AudioPcm {
                         sample_rate,
                         channels,
-                        data: payload,
+                        data: slice,
                     };
                 }
                 Self::Raw(payload)
             }
             Self::TAG_IMAGE_FRAME => {
-                if !payload.is_empty() {
-                    let mime_len = payload.get_u8() as usize;
-                    if payload.len() >= mime_len {
-                        let mime = String::from_utf8_lossy(&payload[..mime_len]).to_string();
-                        payload.advance(mime_len);
-                        return Self::ImageFrame { mime, data: payload };
+                if !slice.is_empty() {
+                    let mime_len = slice.get_u8() as usize;
+                    if slice.len() >= mime_len {
+                        let mime = String::from_utf8_lossy(&slice[..mime_len]).to_string();
+                        slice.advance(mime_len);
+                        return Self::ImageFrame { mime, data: slice };
                     }
                 }
                 Self::Raw(payload)
@@ -289,6 +290,12 @@ impl DataStreamProducer {
             .await?;
 
         Ok(seq)
+    }
+
+    /// Streams raw binary sensor packets (e.g. CAN bus, Modbus, SPI DMA).
+    pub async fn send_raw(&self, data: &[u8]) -> Result<u64, ClientError> {
+        let typed = SensorDataType::Raw(Bytes::copy_from_slice(data));
+        self.send(typed.encode()).await
     }
 
     /// Streams a high-frequency time-series float array (e.g. IMU [x, y, z], power, vibration).

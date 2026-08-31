@@ -5,7 +5,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), follow
 
 ---
 
-## [1.3.0] - 2026-08-31
+## [1.5.1] - 2026-08-31
 
 ### Added
 - **Standard Tokio Client (`--features tokio-client`)**:

@@ -1,6 +1,6 @@
 # Technical Design Document (TDD)
 
-Subsystem architecture, transport contracts, and test strategy for `mqtt-async-embedded`.
+Subsystem architecture, transport contracts, web bridges, and test strategy for `mqtt-async-embedded`.
 
 ---
 
@@ -16,15 +16,16 @@ Subsystem architecture, transport contracts, and test strategy for `mqtt-async-e
 |   +-------------------+  +-------------------+  +---------------+|
 +------------------------------------------------------------------+
                                   |
-                                  v
-                    +---------------------------+
-                    |  MqttTransport Trait      |
-                    |  MqttQuicTransport Trait  |
-                    +---------------------------+
-                      /           |            \
-                     v            v             v
-             TcpSocket        UART Modem      QUIC Stream
-            (embassy-net)   (ESP8266/AT)    (Quinn / Cellular)
+            +---------------------+---------------------+
+            |                                           |
+            v                                           v
++---------------------------+               +---------------------------+
+|  MqttTransport Trait      |               | Web & UI Bridges          |
+|  MqttQuicTransport Trait  |               | - CameraMjpegBridge (Axum)|
++---------------------------+               | - TelemetrySseBridge (SSE)|
+  /           |            \                | - Slint Stream Binding    |
+ v            v             v               +---------------------------+
+TcpSocket UART Modem  QUIC Stream
 ```
 
 ---
@@ -46,10 +47,21 @@ Subsystem architecture, transport contracts, and test strategy for `mqtt-async-e
   - `publish_batch(messages)`: Zero-copy burst publishing via `bytes::Bytes`.
   - `subscribe_stream(topic, qos)`: Topic-filtered stream backed by a prefix trie.
   - `create_datastream_producer(topic, qos, window)`: Multi-worker producer with atomic ordering and sliding recovery journal.
+  - `create_broadcast_hub(topic, qos, capacity)`: 1-to-N fanout hub for web servers.
+  - `bind_slint_property()` / `bind_slint_camera()`: Cross-thread UI property update binders.
 
 ---
 
-### 2.2. Transport Abstraction (`src/transport.rs`)
+### 2.2. Web Server Bridges & UI Integrations (`src/tokio_client/web.rs`, `src/tokio_client/slint_support.rs`)
+
+- **`MqttBroadcastHub`**: Subscribes once to MQTT topic and broadcasts to unbounded HTTP/SSE connections via `tokio::sync::broadcast`.
+- **`CameraMjpegBridge`**: Prepares `multipart/x-mixed-replace; boundary=frame` chunks for streaming directly into standard HTML `<img>` elements.
+- **`TelemetrySseBridge`**: Formats MQTT payloads into standard SSE lines (`data: <payload>\n\n`).
+- **`SlintStreamBinding`**: Dispatches incoming MQTT payloads to Slint UI event loops safely across thread boundaries.
+
+---
+
+### 2.3. Transport Abstraction (`src/transport.rs`)
 
 ```rust
 pub trait MqttTransport {
@@ -71,16 +83,13 @@ pub trait MqttQuicTransport {
 }
 ```
 
-- **`EmbeddedIoTransport<S>`**: Wraps unified `embedded_io_async::Read + Write` streams.
-- **`EmbeddedIoSplitTransport<R, W>`**: Wraps split reader/writer streams (e.g. split UART RX/TX).
-
 ---
 
 ## 3. Concurrency & Memory Safety
 
-- **Cooperative Polling**: Designed for `embassy-executor` and `tokio`. Polling handles automated `PUBACK` responses internally.
-- **Zero-Allocation Lifetimes**: `MqttEvent<'p>` borrows directly from `rx_buffer`. Compiler prevents events from outliving the client borrow.
-- **Cancel Safety**: Future drops leave internal state machines consistent; partial packet state resets cleanly on reconnect.
+- **Cooperative Polling**: Tailored for `embassy-executor` and `tokio`. Automatically handles incoming `PUBACK`.
+- **Zero-Allocation Lifetimes**: `MqttEvent<'p>` borrows directly from `rx_buffer`. Compiler ensures events never outlive the client.
+- **Cancel Safety**: Future drops maintain consistent state; partial packet buffers reset cleanly on reconnect.
 
 ---
 
@@ -99,3 +108,5 @@ pub trait MqttQuicTransport {
 - `examples/quic_client.rs`: Unreliable QUIC telemetry datagrams.
 - `examples/tokio_basic_pubsub.rs`: Tokio pub/sub with topic router.
 - `examples/tokio_reconnect_resilience.rs`: Tokio connection loss & journal replay.
+- `examples/server_camera_web_bridge.rs`: Axum / Actix MJPEG video and SSE telemetry bridge.
+- `examples/slint_dashboard_app.rs`: Slint desktop/embedded dashboard with live MQTT bindings.

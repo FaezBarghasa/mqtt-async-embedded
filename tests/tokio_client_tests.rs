@@ -474,7 +474,7 @@ async fn test_tokio_client_universal_all_sensor_data_types_multithreaded() {
     let can_task = tokio::spawn(async move {
         for i in 0..10 {
             let can_frame = [0x00, 0x01, 0x07, 0xE8, i, 0xAA, 0x55, 0xFF];
-            let _ = prod_can.send(Bytes::copy_from_slice(&can_frame)).await;
+            let _ = prod_can.send_raw(&can_frame).await;
         }
     });
 
