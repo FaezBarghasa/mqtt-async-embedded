@@ -33,6 +33,7 @@ Core requirements, functional specs, constraints, and roadmap for `mqtt-async-em
 | **FR-16** | Session Data Recovery (In-flight DUP retransmit, auto-resubscribe, offline queue) | Tokio | Complete |
 | **FR-17** | Trie-based topic-filtered stream router (`subscribe_stream`) | Tokio | Complete |
 | **FR-18** | Web Server Streaming Bridge (Axum, Actix-web, MJPEG, SSE) | Tokio | Complete |
+| **FR-19** | Slint GUI Client Application Integration (`std` & `no_std`) | All | Complete |
 
 ---
 

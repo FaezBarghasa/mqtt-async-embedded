@@ -97,3 +97,15 @@ sequenceDiagram
 3. **SSE Stream Formatter**: `TelemetrySseBridge` formats incoming telemetry/motion alerts into `data: ...\n\n` event chunks.
 4. **Lag Handling**: If a slow web client drops behind, lagged frames are skipped automatically to maintain real-time sub-millisecond video latency.
 
+---
+
+### 3.4. Slint GUI Application Binding Flow (`std` & `no_std`)
+
+1. **Desktop / Mobile (`std`)**:
+   - `bind_slint_property` and `bind_slint_camera` spawn non-blocking background Tokio tasks.
+   - Incoming payloads are marshaled across thread boundaries via `slint::Weak::upgrade_in_event_loop`.
+2. **Microcontroller Bare Metal (`no_std`)**:
+   - `client.poll().await` runs directly inside the embedded MCU display tick loop.
+   - Decoded payloads directly mutate Slint UI model states without heap allocations or background threads.
+
+

@@ -35,8 +35,12 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), follow
   - `CameraMjpegBridge`: Standard `multipart/x-mixed-replace` formatter for direct browser video streaming (`<img>` tags).
   - `TelemetrySseBridge`: Server-Sent Events (SSE) stream bridge for web dashboards.
   - Example: `examples/server_camera_web_bridge.rs`.
+- **Slint GUI Client Application Integration (`std` & `no_std`)**:
+  - `SlintStreamBinding`: Thread-safe cross-thread UI stream bindings via `bind_slint_property` and `bind_slint_camera`.
+  - Seamless zero-allocation `no_std` embedded MCU integration inside Slint display tick loops.
+  - Example: `examples/slint_dashboard_app.rs`.
 - **Examples & Test Suite**:
-  - `examples/tokio_basic_pubsub.rs`, `examples/tokio_reconnect_resilience.rs`, and `examples/server_camera_web_bridge.rs`.
+  - `examples/tokio_basic_pubsub.rs`, `examples/tokio_reconnect_resilience.rs`, `examples/server_camera_web_bridge.rs`, and `examples/slint_dashboard_app.rs`.
   - Integration test suite in `tests/tokio_client_tests.rs`.
 
 ---
