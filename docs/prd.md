@@ -1,13 +1,19 @@
-# Product Requirements Document (PRD)
+# Product Requirements Document (PRD): Universal MQTT Engine
 
 Core requirements, functional specs, constraints, and architecture for `mqtt-async-embedded`.
 
 ---
 
-## 1. Overview & Dual Modes
+## 1. Overview & Architectural Layers
 
-- **Embedded Engine (`no_std`, `no_alloc`)**: Zero heap allocations, compile-time static buffers for MCUs (STM32, ESP32, RISC-V).
-- **Tokio Host Client (`mqtt-tokio`)**: High-throughput, cross-platform client with multi-threaded data streams and session data recovery across Linux, Windows, Android, and Redox OS.
+- **Protocol Core (`mqtt-core`)**: Pure `no_std`, `no_alloc` state machine, foundational traits, and hierarchical error model.
+- **Packet Codec (`mqtt-packet`)**: Zero-allocation MQTT v3.1.1 and v5.0 packet serializer and parser.
+- **Crypto & Security (`mqtt-crypto`)**: Hardware cryptographic accelerator offloading and TLS session abstractions.
+- **Storage & Persistence (`mqtt-storage`)**: Static in-memory buffers and durable storage abstractions.
+- **Embedded Engine (`mqtt-embedded`)**: Embassy async tasks, zero-copy DMA ring buffers, and MCU streaming for STM32, ESP32, RISC-V.
+- **Host Engine (`mqtt-tokio`)**: High-throughput, cross-platform client with session data recovery across Linux, Windows, Android, and Redox OS.
+- **Bridges & Integration (`mqtt-bridges`)**: Web server streaming bridges (Axum, Actix, SSE, MJPEG) and Slint GUI event loops.
+- **Facade (`mqtt-async-embedded`)**: Top-level umbrella crate with feature toggles and backward compatibility.
 
 ---
 
@@ -15,16 +21,16 @@ Core requirements, functional specs, constraints, and architecture for `mqtt-asy
 
 | ID | Feature | Scope | Status |
 | :--- | :--- | :--- | :--- |
-| **FR-01** | MQTT v3.1.1 packet codec | All | Complete |
-| **FR-02** | MQTT v5.0 properties & reason codes (`v5` flag) | All | Complete |
-| **FR-03** | `CONNECT` / `CONNACK` with Last Will & Testament (LWT) | All | Complete |
-| **FR-04** | `PUBLISH` (QoS 0, 1; QoS 2 full codec & state machine) | All | Complete |
-| **FR-05** | `SUBSCRIBE` / `SUBACK` & `UNSUBSCRIBE` / `UNSUBACK` | All | Complete |
-| **FR-06** | Keep-alive heartbeat loop (`PINGREQ` / `PINGRESP`) | All | Complete |
-| **FR-07** | Universal `embedded-io-async` adapters (`EmbeddedIoTransport`) | Embedded | Complete |
-| **FR-08** | Multi-packet burst publish (`publish_batch`) & batch poll (`poll_batch`) | All | Complete |
-| **FR-09** | MQTT over QUIC transport (`MqttQuicTransport` & `QuicMqttClient`) | All | Complete |
-| **FR-10** | Low-latency QUIC datagram telemetry (`publish_datagram`) | All | Complete |
+| **FR-01** | MQTT v3.1.1 packet codec | Codec | Complete |
+| **FR-02** | MQTT v5.0 properties & reason codes (`v5` flag) | Codec | Complete |
+| **FR-03** | Pure deterministic protocol state machine (`transition`) | Core | Complete |
+| **FR-04** | In-flight packet collision detection & QoS 1/2 tracking | Core | Complete |
+| **FR-05** | Foundational transport abstractions (`Transport`, `VectoredTransport`, `ZeroCopyTransport`) | Core | Complete |
+| **FR-06** | Hardware crypto acceleration interface (`CryptoBackend`) | Crypto | Complete |
+| **FR-07** | Static bounded in-memory session store (`StaticMemStore`) | Storage | Complete |
+| **FR-08** | Multi-packet burst publish (`publish_batch`) & batch poll (`poll_batch`) | Embedded | Complete |
+| **FR-09** | MQTT over QUIC transport (`MqttQuicTransport` & `QuicMqttClient`) | Tokio/Embedded | Complete |
+| **FR-10** | Low-latency QUIC datagram telemetry (`publish_datagram`) | Tokio | Complete |
 | **FR-11** | Zero-RAM chunk stream publish (`begin_stream_publish` / `MqttStreamWriter`) | Embedded | Complete |
 | **FR-12** | Direct DMA slice streaming (`write_dma_slice`, `write_dma_vectored`) | Embedded | Complete |
 | **FR-13** | Standard Tokio Client (`Client`, `AsyncClient`, `EventLoop`) | Tokio | Complete |
@@ -32,21 +38,21 @@ Core requirements, functional specs, constraints, and architecture for `mqtt-asy
 | **FR-15** | Multi-threaded stream ingestion (`DataStreamProducer`, `DataStreamConsumer`) | Tokio | Complete |
 | **FR-16** | Session Data Recovery (In-flight DUP retransmit, auto-resubscribe, offline queue) | Tokio | Complete |
 | **FR-17** | Trie-based topic-filtered stream router (`subscribe_stream`) | Tokio | Complete |
-| **FR-18** | Web Server Streaming Bridge (Axum, Actix-web, MJPEG, SSE) | Tokio | Complete |
-| **FR-19** | Slint GUI Client Application Integration (`std` & `no_std`) | All | Complete |
+| **FR-18** | Web Server Streaming Bridge (Axum, Actix-web, MJPEG, SSE) | Bridges | Complete |
+| **FR-19** | Slint GUI Client Application Integration (`std` & `no_std`) | Bridges | Complete |
 | **FR-20** | Pluggable MCU TLS Backend Trait (`TlsTransport`) | Embedded | Complete |
-| **FR-21** | Continuous Fuzzing (`libfuzzer-sys`) & Proptest Codec Validation | All | Complete |
+| **FR-21** | In-process mock broker test harness & Protocol Compliance validation | Tests | Complete |
 
 ---
 
 ## 3. Non-Functional Requirements
 
 - **Zero Allocations**: 0 heap allocations on embedded targets (`no_std` / `no_alloc`).
-- **RAM Footprint**: Fixed array buffers (512B - 2KB configurable) for MCUs.
-- **Safety Invariant**: Strictly enforced `#![forbid(unsafe_code)]` across all 5 workspace crates.
+- **RAM Footprint**: Fixed array buffers (512B - 2KB configurable) for microcontrollers.
+- **Safety Invariant**: Strictly enforced `#![forbid(unsafe_code)]` across all workspace crates with automated CI checks.
 - **Host Throughput**: High-throughput zero-copy pipeline backed by `bytes::Bytes`.
 - **Concurrency**: Lock-free atomic sequence generation; cancel-safe async futures.
-- **Logging**: Zero-overhead `defmt` for MCUs; `tracing` for host environments.
+- **Logging**: Zero-overhead `defmt` for MCUs; `tracing` and `log` for host environments.
 
 ---
 

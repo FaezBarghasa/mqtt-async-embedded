@@ -5,6 +5,17 @@
       <sourceFolder url="file://$MODULE_DIR$/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/benches/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/mqtt-async-embedded/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/mqtt-async-embedded/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/mqtt-async-embedded/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/mqtt-bridges/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/mqtt-embedded/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/mqtt-embedded/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/mqtt-packet/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/mqtt-packet/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/mqtt-tokio/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/mqtt-tokio/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

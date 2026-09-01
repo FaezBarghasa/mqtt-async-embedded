@@ -1,0 +1,22 @@
+[package]
+name = "mqtt-core"
+version = "1.6.0"
+edition = "2024"
+authors = ["Faez Barghasa <faez.barghasa.org@gmail.com>"]
+description = "Pure no_std protocol state machine, collision management, foundational traits, and error types for MQTT."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/FaezBarghasa/mqtt-async-embedded"
+documentation = "https://docs.rs/mqtt-core"
+readme = "README.md"
+keywords = ["mqtt", "core", "state-machine", "no_std", "embedded"]
+categories = ["embedded", "no-std", "network-programming"]
+
+[dependencies]
+mqtt-packet = { path = "../mqtt-packet", version = "1.6.0" }
+heapless = "0.9"
+defmt = { version = "1.0", optional = true }
+
+[features]
+default = []
+defmt = ["dep:defmt", "mqtt-packet/defmt", "heapless/defmt"]
+std = ["mqtt-packet/std"]

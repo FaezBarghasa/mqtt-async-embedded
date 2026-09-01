@@ -28,6 +28,12 @@ jobs:
       - name: Format Check
         run: cargo fmt --all -- --check
 
+      - name: Forbid Unsafe Code Verification
+        run: |
+          echo "Verifying no unsafe blocks, functions, or traits in workspace crates..."
+          ! grep -rnE "\bunsafe\s+(\{|fn|impl|trait)" crates/
+
+
       - name: Clippy Workspace
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
@@ -52,6 +58,9 @@ jobs:
 
       - name: Check Examples
         run: cargo check --workspace --all-features --examples
+
+      - name: Check Benchmarks
+        run: cargo bench --workspace --no-run
 
       - name: Check Documentation
         run: cargo doc --workspace --all-features --no-deps
@@ -79,14 +88,21 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Pure no_std Build (mqtt-packet & mqtt-embedded)
+      - name: Pure no_std Build
         run: |
+          cargo check --package mqtt-core --target ${{ matrix.target }} --no-default-features
+          cargo check --package mqtt-crypto --target ${{ matrix.target }} --no-default-features
+          cargo check --package mqtt-storage --target ${{ matrix.target }} --no-default-features
           cargo check --package mqtt-packet --target ${{ matrix.target }} --no-default-features
           cargo check --package mqtt-embedded --target ${{ matrix.target }} --no-default-features
           cargo check --package mqtt-async-embedded --target ${{ matrix.target }} --no-default-features
 
       - name: no_std + defmt logging
         run: |
+          cargo check --package mqtt-core --target ${{ matrix.target }} --no-default-features --features defmt
+          cargo check --package mqtt-crypto --target ${{ matrix.target }} --no-default-features --features defmt
+          cargo check --package mqtt-storage --target ${{ matrix.target }} --no-default-features --features defmt
           cargo check --package mqtt-packet --target ${{ matrix.target }} --no-default-features --features defmt
           cargo check --package mqtt-embedded --target ${{ matrix.target }} --no-default-features --features defmt
           cargo check --package mqtt-async-embedded --target ${{ matrix.target }} --no-default-features --features defmt
+

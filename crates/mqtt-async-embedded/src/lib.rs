@@ -19,8 +19,11 @@
 #[cfg(feature = "std")]
 extern crate std;
 
+pub use mqtt_core as core;
+pub use mqtt_crypto as crypto;
 pub use mqtt_packet as packet;
 pub use mqtt_packet as util;
+pub use mqtt_storage as storage;
 
 pub mod client {
     pub use mqtt_embedded::client::*;
@@ -28,8 +31,14 @@ pub mod client {
 }
 
 pub mod error {
+    pub use mqtt_core::error as core_error;
     pub use mqtt_embedded::error::*;
     pub use mqtt_packet::PacketError;
+}
+
+pub mod traits {
+    pub use mqtt_core::traits::*;
+    pub use mqtt_crypto::traits::*;
 }
 
 pub mod inflight {

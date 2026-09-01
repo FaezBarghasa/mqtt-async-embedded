@@ -13,9 +13,13 @@ categories = ["embedded", "no-std", "asynchronous", "network-programming"]
 
 [dependencies]
 mqtt-packet = { path = "../mqtt-packet", version = "1.6.0" }
+mqtt-core = { path = "../mqtt-core", version = "1.6.0" }
+mqtt-crypto = { path = "../mqtt-crypto", version = "1.6.0" }
+mqtt-storage = { path = "../mqtt-storage", version = "1.6.0" }
 mqtt-embedded = { path = "../mqtt-embedded", version = "1.6.0" }
 mqtt-tokio = { path = "../mqtt-tokio", version = "1.6.0", optional = true }
 mqtt-bridges = { path = "../mqtt-bridges", version = "1.6.0", optional = true }
+
 
 embedded-hal = "1.0"
 embedded-hal-async = "1.0"
@@ -59,6 +63,9 @@ webpki-roots = { version = "1.0.9", optional = true }
 [features]
 default = []
 std = [
+    "mqtt-core/std",
+    "mqtt-crypto/std",
+    "mqtt-storage/std",
     "mqtt-embedded/std",
     "mqtt-packet/std",
     "dep:tokio",
@@ -93,7 +100,16 @@ tokio-quic = [
     "dep:rustls",
 ]
 v5 = []
-defmt = ["dep:defmt", "mqtt-packet/defmt", "mqtt-embedded/defmt", "heapless/defmt"]
+defmt = [
+    "dep:defmt",
+    "mqtt-core/defmt",
+    "mqtt-crypto/defmt",
+    "mqtt-storage/defmt",
+    "mqtt-packet/defmt",
+    "mqtt-embedded/defmt",
+    "heapless/defmt",
+]
+
 nom = ["dep:nom", "mqtt-packet/nom"]
 transport-smoltcp = [
     "mqtt-embedded/transport-smoltcp",
@@ -103,6 +119,11 @@ transport-smoltcp = [
     "embassy-net/medium-ethernet",
 ]
 transport-quic = ["std", "dep:quinn", "dep:rustls", "dep:bytes"]
+
+[dev-dependencies]
+tokio = { version = "1.47", features = ["full"] }
+
+
 
 [[example]]
 name = "desktop_mock"
@@ -121,18 +142,22 @@ path = "examples/quic_client.rs"
 
 [[example]]
 name = "esp8266_uart"
+required-features = ["std"]
 path = "examples/esp8266_uart.rs"
 
 [[example]]
 name = "smoltcp_ethernet"
+required-features = ["std"]
 path = "examples/smoltcp_ethernet.rs"
 
 [[example]]
 name = "esp32_wifi_embassy"
+required-features = ["std"]
 path = "examples/esp32_wifi_embassy.rs"
 
 [[example]]
 name = "realtime_stream"
+required-features = ["std"]
 path = "examples/realtime_stream.rs"
 
 [[example]]
@@ -162,10 +187,12 @@ path = "examples/slint_dashboard.rs"
 
 [[example]]
 name = "stm32h7_embassy_mqtt"
+required-features = ["std"]
 path = "examples/stm32h7_embassy_mqtt.rs"
 
 [[example]]
 name = "esp32c3_uart_mqtt"
+required-features = ["std"]
 path = "examples/esp32c3_uart_mqtt.rs"
 
 [[example]]

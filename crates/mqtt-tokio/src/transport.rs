@@ -8,11 +8,11 @@
 use std::boxed::Box;
 use std::format;
 
-#[cfg(feature = "transport-quic")]
+#[cfg(any(feature = "quic", feature = "transport-quic"))]
 use std::pin::Pin;
-#[cfg(feature = "transport-quic")]
+#[cfg(any(feature = "quic", feature = "transport-quic"))]
 use std::task::{Context, Poll};
-#[cfg(feature = "transport-quic")]
+#[cfg(any(feature = "quic", feature = "transport-quic"))]
 use tokio::io::ReadBuf;
 
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -42,17 +42,26 @@ impl AsyncTransport for tokio::net::UnixStream {}
 #[cfg(windows)]
 impl AsyncTransport for tokio::net::windows::named_pipe::NamedPipeClient {}
 
-#[cfg(feature = "tokio-tls")]
+#[cfg(any(feature = "tls", feature = "tokio-tls"))]
 impl AsyncTransport for tokio_rustls::client::TlsStream<TcpStream> {}
 
-#[cfg(feature = "transport-quic")]
+#[cfg(any(feature = "quic", feature = "transport-quic"))]
 pub struct QuicTransportStream {
     pub send_stream: quinn::SendStream,
     pub recv_stream: quinn::RecvStream,
     pub connection: quinn::Connection,
 }
 
-#[cfg(feature = "transport-quic")]
+#[cfg(any(feature = "quic", feature = "transport-quic"))]
+impl AsyncTransport for QuicTransportStream {
+    fn send_datagram(&mut self, data: &[u8]) -> Result<(), ClientError> {
+        self.connection
+            .send_datagram(bytes::Bytes::copy_from_slice(data))
+            .map_err(|e| ClientError::Quic(format!("Datagram send failed: {e}")))
+    }
+}
+
+#[cfg(any(feature = "quic", feature = "transport-quic"))]
 impl AsyncRead for QuicTransportStream {
     fn poll_read(
         mut self: Pin<&mut Self>,
@@ -63,7 +72,7 @@ impl AsyncRead for QuicTransportStream {
     }
 }
 
-#[cfg(feature = "transport-quic")]
+#[cfg(any(feature = "quic", feature = "transport-quic"))]
 impl AsyncWrite for QuicTransportStream {
     fn poll_write(
         mut self: Pin<&mut Self>,
@@ -89,15 +98,6 @@ impl AsyncWrite for QuicTransportStream {
     }
 }
 
-#[cfg(feature = "transport-quic")]
-impl AsyncTransport for QuicTransportStream {
-    fn send_datagram(&mut self, data: &[u8]) -> Result<(), ClientError> {
-        self.connection
-            .send_datagram(bytes::Bytes::copy_from_slice(data))
-            .map_err(|e| ClientError::Quic(format!("Datagram send failed: {e}")))
-    }
-}
-
 /// Connects to the specified cross-platform target and returns a boxed async transport stream.
 pub async fn connect_transport(target: &TransportTarget) -> Result<BoxedTransport, ClientError> {
     match target {
@@ -107,7 +107,7 @@ pub async fn connect_transport(target: &TransportTarget) -> Result<BoxedTranspor
             let _ = stream.set_nodelay(true);
             Ok(Box::new(stream))
         }
-        #[cfg(feature = "tokio-tls")]
+        #[cfg(any(feature = "tls", feature = "tokio-tls"))]
         TransportTarget::Tls {
             host,
             port,
@@ -142,7 +142,7 @@ pub async fn connect_transport(target: &TransportTarget) -> Result<BoxedTranspor
 
             Ok(Box::new(tls_stream))
         }
-        #[cfg(feature = "transport-quic")]
+        #[cfg(any(feature = "quic", feature = "transport-quic"))]
         TransportTarget::Quic {
             host,
             port,

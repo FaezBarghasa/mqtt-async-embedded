@@ -5,11 +5,19 @@ Format based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), follow
 
 ---
 
-## [1.6.0] - 2026-08-31
+## [1.6.0] - 2026-09-01
 
 ### Added
+- **Universal MQTT Engine Layered Workspace**:
+  - Introduced `mqtt-core` (`no_std`, `no_alloc`): Pure protocol state machine (`transition`), abstract asynchronous traits (`Transport`, `VectoredTransport`, `ZeroCopyTransport`, `Clock`, `Storage`), collision detection, and unified `MqttError<E>`.
+  - Introduced `mqtt-crypto` (`no_std`): Hardware crypto offload interface (`CryptoBackend`) and `TlsSession` traits.
+  - Introduced `mqtt-storage` (`no_std`): Compile-time bounded static in-memory store (`StaticMemStore`) and durability interfaces.
+- **Protocol Compliance & Mock Broker Test Harness**:
+  - In-process mock broker test harness simulating full MQTT v3.1.1 and MQTT v5.0 handshake, QoS 0/1 pub/sub, burst batching, and keep-alive ping cycles (`crates/mqtt-async-embedded/tests/protocol_compliance_tests.rs`).
+  - Pure state machine unit test suite verifying deterministic transitions, reconnect backoff cycles, and packet ID collision detection (`crates/mqtt-core/tests/state_machine_tests.rs`).
 - **Cargo Workspace Modularization**:
-  - Split the monolithic project into 5 dedicated subcrates: `mqtt-packet`, `mqtt-embedded`, `mqtt-tokio`, `mqtt-bridges`, and `mqtt-async-embedded` facade.
+  - Strict layered dependency hierarchy: `codec / crypto / storage ← core ← transport ← client / facade`.
+
 - **Dual Licensing**:
   - Re-licensed all crates and documentation under standard dual licensing: `MIT OR Apache-2.0`.
 - **Security & Correctness**:

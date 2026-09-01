@@ -1329,8 +1329,11 @@ dependencies = [
  "heapless 0.9.1",
  "log",
  "mqtt-bridges",
+ "mqtt-core",
+ "mqtt-crypto",
  "mqtt-embedded",
  "mqtt-packet",
+ "mqtt-storage",
  "mqtt-tokio",
  "nom",
  "quinn",
@@ -1354,6 +1357,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "mqtt-core"
+version = "1.6.0"
+dependencies = [
+ "defmt",
+ "heapless 0.9.1",
+ "mqtt-packet",
+]
+
+[[package]]
+name = "mqtt-crypto"
+version = "1.6.0"
+dependencies = [
+ "defmt",
+]
+
+[[package]]
 name = "mqtt-embedded"
 version = "1.6.0"
 dependencies = [
@@ -1366,6 +1385,7 @@ dependencies = [
  "embedded-io-async 0.7.0",
  "embedded-tls",
  "heapless 0.9.1",
+ "mqtt-core",
  "mqtt-packet",
  "quinn",
 ]
@@ -1378,6 +1398,14 @@ dependencies = [
  "heapless 0.9.1",
  "nom",
  "proptest",
+]
+
+[[package]]
+name = "mqtt-storage"
+version = "1.6.0"
+dependencies = [
+ "defmt",
+ "heapless 0.9.1",
 ]
 
 [[package]]

@@ -2,12 +2,16 @@
 resolver = "2"
 members = [
     "crates/mqtt-packet",
+    "crates/mqtt-core",
+    "crates/mqtt-crypto",
+    "crates/mqtt-storage",
     "crates/mqtt-embedded",
     "crates/mqtt-tokio",
     "crates/mqtt-bridges",
     "crates/mqtt-async-embedded",
     "benches",
 ]
+
 
 [workspace.package]
 version = "1.6.0"

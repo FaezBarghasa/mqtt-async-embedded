@@ -88,19 +88,20 @@ pub enum TransportTarget {
     /// Standard TCP socket (Linux, Windows, Android).
     Tcp { host: String, port: u16 },
     /// TLS encrypted TCP socket via Rustls (Linux, Windows, Android).
-    #[cfg(feature = "tokio-tls")]
+    #[cfg(any(feature = "tls", feature = "tokio-tls"))]
     Tls {
         host: String,
         port: u16,
         server_name: String,
     },
     /// MQTT over QUIC / H3 transport with multiplexed streams and datagrams (Linux, Windows, Android).
-    #[cfg(feature = "transport-quic")]
+    #[cfg(any(feature = "quic", feature = "transport-quic"))]
     Quic {
         host: String,
         port: u16,
         server_name: String,
     },
+
     /// POSIX Unix Domain Sockets or Android Abstract Namespace Sockets (Linux, Android).
     Unix { path: String },
     /// Windows Named Pipes for high-speed local IPC (Windows).

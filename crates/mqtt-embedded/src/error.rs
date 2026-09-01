@@ -127,3 +127,73 @@ pub enum ProtocolError {
     InvalidTopic,
     UnsupportedQoS,
 }
+
+use core::fmt;
+
+impl<T: fmt::Display> fmt::Display for MqttError<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Transport(t) => write!(f, "Transport I/O error: {t}"),
+            Self::Protocol(p) => write!(f, "Protocol violation: {p}"),
+            Self::ConnectionRefused(c) => write!(f, "Connection refused: {c}"),
+            Self::NotConnected => write!(f, "Client is not connected"),
+            Self::BufferTooSmall => write!(f, "Buffer is too small for operation"),
+            Self::Timeout => write!(f, "Network/keep-alive operation timed out"),
+            Self::BatchCapacityExceeded => write!(f, "Batch message capacity exceeded"),
+            Self::InflightQueueFull => write!(f, "Inflight queue is full"),
+            Self::QuicError(q) => write!(f, "QUIC error: {q}"),
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+impl<T: std::error::Error + 'static> std::error::Error for MqttError<T> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Transport(t) => Some(t),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for ConnectReasonCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Success => write!(f, "Success"),
+            Self::UnacceptableProtocolVersion => write!(f, "Unacceptable Protocol Version"),
+            Self::IdentifierRejected => write!(f, "Identifier Rejected"),
+            Self::ServerUnavailable => write!(f, "Server Unavailable"),
+            Self::BadUserNameOrPassword => write!(f, "Bad Username or Password"),
+            Self::NotAuthorized => write!(f, "Not Authorized"),
+            Self::Other(code) => write!(f, "Other reason code ({code})"),
+        }
+    }
+}
+
+impl fmt::Display for ProtocolError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidPacketType(t) => write!(f, "Invalid packet type byte: 0x{t:02X}"),
+            Self::InvalidResponse => write!(f, "Invalid broker response packet"),
+            Self::MalformedPacket => write!(f, "Malformed or truncated packet"),
+            Self::IncompletePacket => write!(f, "Incomplete packet frame received"),
+            Self::PayloadTooLarge => write!(f, "Payload exceeds maximum allowed length"),
+            Self::InvalidUtf8String => write!(f, "Invalid UTF-8 string in packet"),
+            Self::TooManyProperties => write!(f, "Number of MQTT 5.0 properties exceeded capacity"),
+            Self::InvalidTopic => write!(f, "Topic contains invalid characters or wildcards"),
+            Self::UnsupportedQoS => write!(f, "Requested QoS level is not supported"),
+        }
+    }
+}
+
+impl fmt::Display for QuicErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::StreamClosed => write!(f, "QUIC stream closed"),
+            Self::StreamReset(code) => write!(f, "QUIC stream reset (code {code})"),
+            Self::ConnectionLost => write!(f, "QUIC connection lost"),
+            Self::DatagramTooLarge => write!(f, "QUIC datagram exceeds MTU size"),
+            Self::UnsupportedOperation => write!(f, "QUIC operation not supported"),
+        }
+    }
+}

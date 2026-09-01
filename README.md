@@ -17,19 +17,26 @@ Designed to be the fastest, safest, and most versatile MQTT client in the Rust e
 
 ```
 mqtt-async-embedded (Facade / Umbrella Crate)
+├── mqtt-core     : Pure no_std, no_alloc protocol state machine, traits, and error hierarchy
 ├── mqtt-packet   : Pure no_std, no_alloc MQTT 3.1.1 & 5.0 codec engine
-├── mqtt-embedded : no_std, no_alloc async state machine (Embassy / embedded-io-async)
+├── mqtt-crypto   : no_std hardware crypto offloading & TLS session traits
+├── mqtt-storage  : no_std static memory & persistent session storage
+├── mqtt-embedded : no_std, no_alloc async client for Embassy & bare metal
 ├── mqtt-tokio    : High-throughput async client for Tokio, QUIC, and session recovery
 └── mqtt-bridges  : Web server bridges (Axum SSE/MJPEG) and Slint UI binders
 ```
 
 | Crate | Environment | Description |
 | :--- | :--- | :--- |
+| **[`mqtt-core`](crates/mqtt-core)** | `no_std`, `no_alloc` | Protocol state machine, abstract traits (`Transport`, `Clock`, `Storage`), and unified `MqttError`. |
 | **[`mqtt-packet`](crates/mqtt-packet)** | `no_std`, `no_alloc` | Zero-allocation MQTT v3.1.1 & v5 encoder/decoder with proptest and fuzz validation. |
+| **[`mqtt-crypto`](crates/mqtt-crypto)** | `no_std` | Hardware crypto accelerator offload (`CryptoBackend`) and TLS engine abstractions. |
+| **[`mqtt-storage`](crates/mqtt-storage)** | `no_std` | Bounded static in-memory store and durable session persistence interfaces. |
 | **[`mqtt-embedded`](crates/mqtt-embedded)** | `no_std`, `no_alloc` (Embassy) | Bare-metal MCU async client, bounded in-flight QoS 1 & 2, direct DMA streaming. |
 | **[`mqtt-tokio`](crates/mqtt-tokio)** | `std` (Tokio Runtime) | High-throughput host client with offline queueing, topic routing & smart QUIC fallback. |
 | **[`mqtt-bridges`](crates/mqtt-bridges)** | `std` (Tokio) | Web server MJPEG multipart & SSE stream formatters, and Slint UI bindings. |
 | **[`mqtt-async-embedded`](crates/mqtt-async-embedded)** | Facade / Umbrella | Root facade crate providing 100% backward compatibility and feature toggles. |
+
 
 ---
 
